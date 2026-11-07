@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 
 from siemens_explorer.analysis import Preview
 from siemens_explorer.qt_plots import PreviewView, SignalView
-from siemens_explorer.qt_theme import apply_theme
+from siemens_explorer.qt_theme import apply_theme, theme_colors
 
 
 _APP = QApplication.instance() or QApplication([])
@@ -121,20 +121,23 @@ class PreviewViewTests(unittest.TestCase):
         self.assertIn("66.7%", self.view.stats.text())
         self.assertIn("Trajectory not verified", self.view.notes.toPlainText())
 
-    def test_theme_changes_keep_dark_image_panes_and_original_arrays(self):
+    def test_theme_changes_update_plot_surfaces_and_preserve_original_arrays(self):
         self.view.set_preview(self.preview)
         signal_view = SignalView()
         signal = np.array([1 + 1j, 2 - 3j], dtype=np.complex64)
         signal_view.set_signal(signal)
         try:
-            for theme in ("dark", "light"):
+            for theme in ("dark", "light", "cockpit", "modern-light"):
                 apply_theme(_APP, theme)
+                colors = theme_colors(theme)
+                self.view.set_theme(colors)
+                signal_view.set_theme(colors)
                 _APP.processEvents()
                 np.testing.assert_array_equal(self.view.image_view.image, self.preview.image)
                 np.testing.assert_array_equal(signal_view.signal, signal)
                 color = signal_view.plot.backgroundBrush().color().name()
-                self.assertEqual(color, "#1e1e1e")
-                self.assertEqual(self.view.image_view.getView().getAxis("left").textPen().color().name(), "#d6d6d6")
+                self.assertEqual(color, colors["plot_background"])
+                self.assertEqual(self.view.image_view.getView().getAxis("left").textPen().color().name(), colors["plot_foreground"])
         finally:
             apply_theme(_APP, "light")
             signal_view.close()
@@ -149,6 +152,43 @@ class PreviewViewTests(unittest.TestCase):
         self.assertFalse(self.view.mode.isEnabled())
         self.assertEqual(self.view.stats.text(), "Filters changed")
 
+    def test_notes_start_hidden_and_preview_updates_respect_the_toggle(self):
+        self.view.resize(1000, 700)
+        self.view.show()
+        _APP.processEvents()
+        self.assertTrue(self.view.notes.isHidden())
+        self.view.set_preview(self.preview)
+        self.assertTrue(self.view.notes.isHidden())
+        self.view.set_notes_visible(True)
+        _APP.processEvents()
+        self.assertTrue(self.view.notes.isVisible())
+        self.assertIn("Trajectory not verified", self.view.notes.toPlainText())
+        self.view.clear("Changed filters")
+        self.view.set_preview(self.preview)
+        self.assertTrue(self.view.notes.isVisible())
+        self.view.set_notes_visible(False)
+        self.view.set_preview(self.preview)
+        self.assertTrue(self.view.notes.isHidden())
+
+    def test_notes_resize_and_toggling_reclaims_the_image_space(self):
+        self.view.resize(1000, 700)
+        self.view.show()
+        _APP.processEvents()
+        initial_image_height = self.view.splitter.height()
+        self.view.set_notes_visible(True)
+        _APP.processEvents()
+        self.view.details_splitter.setSizes([350, 220])
+        _APP.processEvents()
+        chosen_height = self.view.notes.height()
+        self.assertGreater(chosen_height, 105)
+        self.assertLess(self.view.splitter.height(), initial_image_height)
+        self.view.set_notes_visible(False)
+        _APP.processEvents()
+        self.assertEqual(self.view.splitter.height(), initial_image_height)
+        self.view.set_notes_visible(True)
+        _APP.processEvents()
+        self.assertAlmostEqual(self.view.notes.height(), chosen_height, delta=2)
+
     def test_canvas_wheel_steps_slices_with_direction_and_multiple_notches(self):
         self.view.set_preview(self.preview)
         steps = []
@@ -162,7 +202,7 @@ class PreviewViewTests(unittest.TestCase):
             event = self.wheel(target, angle_y=delta)
             self.assertTrue(event.isAccepted())
         self.assertEqual(steps, [1, -1, 3])
-        self.assertIn("Ctrl+wheel: zoom", self.view.hint.text())
+        self.assertIn("Ctrl+wheel: zoom", self.view.image_view.ui.graphicsView.toolTip())
 
     def test_high_resolution_wheel_accumulates_and_horizontal_does_not_step(self):
         self.view.set_preview(self.preview)

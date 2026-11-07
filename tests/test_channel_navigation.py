@@ -14,11 +14,12 @@ from unittest.mock import patch
 import numpy as np
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QGroupBox, QListWidget, QStyle, QStyleOptionSlider
 
 from siemens_explorer import qt_app
 from siemens_explorer.qt_app import MainWindow
 from siemens_explorer.twix import TwixFile, create_demo_file
+from wheel_events import wheel
 
 
 class ChannelNavigationTests(unittest.TestCase):
@@ -58,12 +59,14 @@ class ChannelNavigationTests(unittest.TestCase):
         self.window.close()
         self.window.pool.waitForDone(5000)
         self.app.processEvents()
+        self.window.deleteLater()
+        QTest.qWait(1)
 
     def wait_for(self, condition, timeout=12):
         deadline = time.monotonic() + timeout
         while not condition():
             self.app.processEvents()
-            QTest.qWait(3)
+            time.sleep(0.003)
             if time.monotonic() > deadline:
                 self.fail("Channel operation did not finish in time")
         self.app.processEvents()
@@ -83,7 +86,7 @@ class ChannelNavigationTests(unittest.TestCase):
         self.wait_settled()
 
     def select_channel(self, ordinal):
-        self.window.channel_browser.list.setCurrentRow(ordinal)
+        self.window.channel_selector.slider.setValue(ordinal)
         self.wait_settled()
 
     def open_preview(self):
@@ -91,15 +94,18 @@ class ChannelNavigationTests(unittest.TestCase):
         self.wait_settled()
         self.assertIsNotNone(self.window.preview)
 
-    def test_browser_lists_actual_physical_ids_and_one_click_updates_signal(self):
+    def test_channel_slider_is_in_data_selection_and_updates_physical_channel(self):
         ui = self.window
-        self.assertEqual(list(ui.channel_browser.channel_ids), self.physical_ids)
-        self.assertEqual(ui.channel_browser.list.count(), 4)
+        self.assertEqual(list(ui.channel_selector.channel_ids), self.physical_ids)
+        self.assertEqual(ui.channel_selector.slider.maximum(), 3)
+        self.assertEqual(ui.selection_dock.windowTitle(), "Data selection")
+        self.assertTrue(ui.data_selection.isAncestorOf(ui.channel_selector))
+        self.assertFalse(any(group.title() == "Receive channels" for group in ui.findChildren(QGroupBox)))
+        self.assertFalse(ui.findChildren(QListWidget, "receiveChannelList"))
         first = ui.signal_view.signal.copy()
         for ordinal, physical_id in enumerate(self.physical_ids):
-            item_text = ui.channel_browser.list.item(ordinal).text()
-            self.assertIn(str(ordinal), item_text)
-            self.assertIn(f"ID {physical_id}", item_text)
+            self.select_channel(ordinal)
+            self.assertIn(f"ID {physical_id}", ui.channel_selector.toolTip())
         self.select_channel(2)
         self.assertEqual(ui.channel.currentData(), 2)
         self.assertEqual(ui.signal_view.channel_index, 2)
@@ -119,6 +125,23 @@ class ChannelNavigationTests(unittest.TestCase):
         self.assertFalse(np.allclose(initial, ui.preview.kspace))
         self.assertIs(ui.preview_view.preview, ui.preview)
 
+    def test_hover_wheel_updates_channel_signal_and_preview_with_partial_notches(self):
+        ui = self.window
+        self.open_preview()
+        target = ui.channel_selector.slider
+        ui.channel_selector.slider.clearFocus()
+        wheel(target, angle=-150)
+        self.wait_settled()
+        self.assertEqual(ui.channel.currentData(), 1)
+        self.assertEqual(ui.preview.metadata["selected_channel_id"], 12)
+        self.assertEqual(ui.signal_view.channel_id, 12)
+        wheel(target, angle=-90)
+        self.wait_settled()
+        self.assertEqual(ui.channel.currentData(), 2)
+        self.assertEqual(ui.channel_selector.spin.value(), 2)
+        self.assertEqual(ui.preview.metadata["selected_channel_id"], 42)
+        self.assertEqual(ui.signal_view.channel_id, 42)
+
     def test_channel_selection_leaves_combined_mode_for_individual_coil(self):
         ui = self.window
         self.open_preview()
@@ -130,16 +153,18 @@ class ChannelNavigationTests(unittest.TestCase):
         self.assertEqual(ui.preview.channel_count, 1)
         self.assertEqual(ui.preview.metadata["selected_channel_id"], 42)
 
-    def test_clicking_highlighted_channel_leaves_combined_mode(self):
+    def test_clicking_current_channel_thumb_leaves_combined_mode(self):
         ui = self.window
         self.open_preview()
         ui.rss.setChecked(True)
         self.wait_settled()
         self.assertEqual(ui.preview.channel_count, 4)
-        browser = ui.channel_browser.list
-        current = browser.currentItem()
-        point = browser.visualItemRect(current).center()
-        QTest.mouseClick(browser.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        slider = ui.channel_selector.slider
+        option = QStyleOptionSlider()
+        slider.initStyleOption(option)
+        point = slider.style().subControlRect(QStyle.ComplexControl.CC_Slider, option,
+                                              QStyle.SubControl.SC_SliderHandle, slider).center()
+        QTest.mouseClick(slider, Qt.MouseButton.LeftButton, pos=point)
         self.wait_settled()
         self.assertFalse(ui.rss.isChecked())
         self.assertEqual(ui.preview.channel_count, 1)
@@ -162,7 +187,7 @@ class ChannelNavigationTests(unittest.TestCase):
         ui.step_channel(1)
         self.wait_settled()
         self.assertEqual(ui.channel.currentData(), 1)
-        self.assertEqual(ui.channel_browser.list.currentRow(), 1)
+        self.assertEqual(ui.channel_selector.slider.value(), 1)
         self.assertEqual(ui.preview.metadata["slice"], 1)
         self.assertEqual(ui.preview.metadata["echo"], 1)
         np.testing.assert_allclose(image.getView().getViewBox().viewRange(), image_range, rtol=1e-6, atol=1e-6)
@@ -174,14 +199,14 @@ class ChannelNavigationTests(unittest.TestCase):
         self.wait_settled()
         self.assertEqual(ui.channel.currentData(), 3)
 
-    def test_previous_next_actions_work_with_channel_list_focus(self):
+    def test_previous_next_actions_work_with_channel_slider_focus(self):
         ui = self.window
         ui.activateWindow()
-        ui.channel_browser.list.setFocus()
+        ui.channel_selector.slider.setFocus()
         QTest.qWait(10)
         for key, expected in ((Qt.Key.Key_Left, 0), (Qt.Key.Key_Right, 1),
                               (Qt.Key.Key_Left, 0)):
-            QTest.keyClick(ui.channel_browser.list, key, Qt.KeyboardModifier.ControlModifier)
+            QTest.keyClick(ui.channel_selector.slider, key, Qt.KeyboardModifier.ControlModifier)
             self.wait_settled()
             self.assertEqual(ui.channel.currentData(), expected)
 
@@ -205,12 +230,12 @@ class ChannelNavigationTests(unittest.TestCase):
             with patch.object(qt_app, "build_cartesian_preview", delayed), patch.object(
                 ui.preview_view, "set_preview", wraps=ui.preview_view.set_preview
             ) as displayed:
-                ui.channel_browser.list.setCurrentRow(1)
+                ui.channel_selector.slider.setValue(1)
                 self.wait_for(started.is_set)
                 self.assertTrue(ui.busy)
-                self.assertTrue(ui.channel_browser.isEnabled())
-                ui.channel_browser.list.setCurrentRow(2)
-                ui.channel_browser.list.setCurrentRow(3)
+                self.assertTrue(ui.channel_selector.isEnabled())
+                ui.channel_selector.slider.setValue(2)
+                ui.channel_selector.slider.setValue(3)
                 baseline = len(heartbeats)
                 self.wait_for(lambda: len(heartbeats) >= baseline + 5)
                 self.assertEqual(ui.channel.currentData(), 3)
@@ -224,12 +249,12 @@ class ChannelNavigationTests(unittest.TestCase):
             release.set()
             timer.stop()
 
-    def test_close_dataset_clears_channel_browser(self):
+    def test_close_dataset_clears_channel_selector(self):
         ui = self.window
         ui.close_dataset()
         self.app.processEvents()
-        self.assertEqual(ui.channel_browser.list.count(), 0)
-        self.assertFalse(ui.channel_browser.isEnabled())
+        self.assertEqual(ui.channel_selector.channel_ids, [])
+        self.assertFalse(ui.channel_selector.isEnabled())
 
     def test_data_blocks_open_without_payload_reads_and_select_original_channel(self):
         ui = self.window
@@ -251,7 +276,7 @@ class ChannelNavigationTests(unittest.TestCase):
         self.assertEqual(ui.tabs.currentIndex(), 2)
         self.assertEqual(ui.scan_spin.value(), target_scan.index)
         self.assertEqual(ui.channel.currentData(), 2)
-        self.assertEqual(ui.channel_browser.list.currentRow(), 2)
+        self.assertEqual(ui.channel_selector.slider.value(), 2)
         self.assertEqual(ui.signal_view.channel_id, 42)
         expected = ui.twix.read_signal(ui.measurement, target_scan, 2)
         np.testing.assert_array_equal(ui.signal_view.signal, expected)

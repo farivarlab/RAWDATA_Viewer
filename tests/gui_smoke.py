@@ -40,7 +40,7 @@ def main():
             return window.busy or window._pending_preview or window._preview_timer.isActive() or window.pool.activeThreadCount() > 0
         while pending() and time.monotonic() < deadline:
             app.processEvents()
-            QTest.qWait(10)
+            time.sleep(0.01)
         if pending():
             raise RuntimeError("Qt operation timed out")
         if window.last_error:
@@ -55,7 +55,7 @@ def main():
         wait_for_job()
         window.step_slice(1)
         wait_for_job()
-        window.channel_browser.list.setCurrentRow(2)
+        window.channel_selector.slider.setValue(2)
         wait_for_job()
         app.processEvents()
         QTest.qWait(50)

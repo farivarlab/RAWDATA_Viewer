@@ -1,11 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" shape-rendering="crispEdges">
-  <path fill="#c0c0c0" d="M0 0h32v32H0z"/>
-  <path fill="#fff" d="M0 0h32v2H2v30H0z"/>
-  <path fill="#404040" d="M30 2h2v30H2v-2h28z"/>
-  <path fill="#808080" d="M3 3h26v26H3z"/>
-  <path fill="#000080" d="M4 4h24v24H4z"/>
-  <path fill="#1c3d9c" d="M5 11h22v1H5zm0 7h22v1H5zm0 7h22v1H5zM11 5h1v22h-1zm7 0h1v22h-1zm7 0h1v22h-1z"/>
-  <path fill="#fff" d="M6 6h7v2H8v2h5v2H8v3H6zm7 2h2v2h-2zm-3 4h3v2h2v2h-3v-2h-2z"/>
-  <path fill="#00ffff" d="M5 21h4v-3h3v7h3V14h3v9h3v-5h3v3h3v2h-5v-3h-1v5h-5v-9h-1v11h-5v-7H9v3H5z"/>
-  <path fill="#ffff00" d="M23 6h3v3h-3z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <rect x=".5" y=".5" width="31" height="31" rx="6.5" fill="#202020" stroke="#6a6a6a"/>
+  <path d="M6 18h4l3-8 5 14 4-10 2 4h2" fill="none" stroke="#dddddd" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="6.5" y="6.5" width="3" height="3" rx=".7" fill="#c0c0c0"/>
 </svg>

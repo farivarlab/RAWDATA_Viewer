@@ -7,6 +7,11 @@ __pycache__/
 build/
 dist/
 *.dat
+*.h5
+*.hdf5
+*.mrd
+tmp/
 exports/
 preview.png
 preview-blocks.png
+*.lnk

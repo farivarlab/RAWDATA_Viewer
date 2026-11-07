@@ -2,7 +2,7 @@
 
 These functions deliberately avoid sequence-specific reconstruction. A Cartesian
 preview places acquired samples at their MDH counters, averages repeated samples,
-leaves missing samples zero, and performs a centered two-dimensional inverse FFT.
+leaves missing samples zero, and optionally transforms the X, Y, and Z axes.
 """
 
 from __future__ import annotations
@@ -12,6 +12,9 @@ from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
+
+from .reconstruction import (NoiseCalibration, adaptive_weights, calibration_grid,
+                             centered_ifft, coarse_response, interpolate_response)
 
 
 COUNTERS = (
@@ -28,7 +31,7 @@ TABLE_COLUMNS = (
 
 @dataclass
 class Preview:
-    """Arrays and qualifications for a single two-dimensional Cartesian group."""
+    """Arrays for one Cartesian group, in Y/X or Z/Y/X order."""
 
     kspace: np.ndarray
     image: np.ndarray
@@ -90,13 +93,16 @@ def build_cartesian_preview(
     max_matrix: int = 2048,
     max_bytes: int = 128 * 1024 * 1024,
     all_channels: bool = False,
+    combination: str | None = None,
+    ifft_axes: Iterable[str] = ("x", "y"),
+    noise_covariance: np.ndarray | None = None,
 ) -> Preview:
     """Build a bounded, zero-filled Cartesian quick look for one counter group.
 
     ``kspace`` always contains the selected coil. ``image`` is its magnitude, or
     the root-sum-of-squares magnitude across coils when ``all_channels`` is true.
     Reflection is undone before placing samples. The recorded center column and
-    center line locate k-space zero; no interpolation, trajectory correction,
+    center line locate k-space zero; no k-space interpolation, trajectory correction,
     oversampling removal, parallel imaging, or image orientation is applied.
 
     Display dimensions are inferred bounds, not a verified encoded matrix or a
@@ -104,9 +110,15 @@ def build_cartesian_preview(
     cannot generally be recovered from counters alone. The caller must establish
     whether the acquisition actually uses Cartesian sampling.
 
-    Multiple slices, echoes, repetitions, etc. are rejected: the caller must first
-    select one group. Missing Cartesian samples remain zero and are exposed in
-    ``coverage``. Repeated samples within that group are averaged explicitly.
+    ``combination`` is single, rss, or adaptive. Adaptive estimates smooth channel
+    responses on a bounded grid, then streams a second pass with noise-weighted
+    matched-filter weights. A reader may provide noise_calibration(measurement,
+    receiver_ids); otherwise equal uncorrelated noise is assumed explicitly.
+
+    Only checked axes are transformed; X is readout, Y is line, Z is partition.
+    Z requests a volume across partitions, never across separate 2D slices.
+    Multiple slices, echoes, repetitions, etc. are rejected. Missing samples are
+    zero-filled and exposed in ``coverage``. Repeated samples are averaged.
     """
     supplied = list(scans)
     selected = [scan for scan in supplied if scan.is_image]
@@ -116,9 +128,20 @@ def build_cartesian_preview(
         raise ValueError("Channel index must be a non-negative integer.")
     if max_matrix < 1 or max_bytes < 1:
         raise ValueError("Preview limits must be positive.")
+    combination = combination or ("rss" if all_channels else "single")
+    if combination not in ("single", "rss", "adaptive"):
+        raise ValueError("Choose single, rss, or adaptive channel combination.")
+    names = tuple(ifft_axes)
+    if len(set(names)) != len(names) or any(name not in ("x", "y", "z") for name in names):
+        raise ValueError("Inverse FFT axes must be unique X, Y, or Z names in lower case.")
+    names = tuple(name for name in ("x", "y", "z") if name in names)
+    volume = "z" in names
+    combine = combination != "single"
 
     group: dict[str, int] = {}
     for name in GROUP_COUNTERS:
+        if name == "partition" and volume:
+            continue
         values = sorted({int(getattr(scan, name, 0)) for scan in selected})
         if len(values) > 1:
             raise ValueError(f"Choose one {name} before reconstructing ({len(values)} values selected).")
@@ -127,8 +150,8 @@ def build_cartesian_preview(
     channel_counts = {int(scan.channels) for scan in selected}
     if any(channel_index >= count for count in channel_counts):
         raise ValueError("The selected channel is unavailable in one or more acquisitions.")
-    if all_channels and len(channel_counts) != 1:
-        raise ValueError("Root-sum-of-squares requires a consistent channel count across acquisitions.")
+    if combine and len(channel_counts) != 1:
+        raise ValueError("Channel combination requires a consistent channel count across acquisitions.")
     if len({int(scan.samples) for scan in selected}) != 1:
         raise ValueError("Select acquisitions with one readout sample count for a Cartesian preview.")
 
@@ -153,11 +176,30 @@ def build_cartesian_preview(
     center_x = nx // 2
     ny = max(2 * center_y, 2 * (int(line_numbers.max()) - center_y + 1))
     center_out_y = ny // 2
-    if nx > max_matrix or ny > max_matrix:
-        raise ValueError(f"Preview matrix {ny} × {nx} exceeds the {max_matrix} per-axis limit.")
+    nz, center_z = 1, 0
+    if volume:
+        centers_z = {int(getattr(scan, "center_partition", 0)) for scan in selected}
+        partitions = {int(scan.partition) for scan in selected}
+        if len(centers_z) != 1 or min(partitions) < 0 or min(centers_z) < 0:
+            raise ValueError("Selected acquisitions have inconsistent or invalid k-space center partitions.")
+        center_z = next(iter(centers_z))
+        nz = max(2 * center_z, 2 * (max(partitions) - center_z + 1))
+        if partitions == {0} and center_z == 0:
+            nz = 1
+    shape = (nz, ny, nx) if volume else (ny, nx)
+    axes = tuple({"x": len(shape) - 1, "y": len(shape) - 2, "z": 0}[name] for name in names)
+    if max(shape) > max_matrix:
+        raise ValueError(f"Preview matrix {' × '.join(map(str, shape))} exceeds the {max_matrix} per-axis limit.")
     # FFT implementations can promote complex64 to complex128. Account for
     # inputs, shifted copies, counts, coverage, accumulator, and FFT temporaries.
-    estimated_bytes = nx * ny * 96 + samples * 24
+    grid = calibration_grid(shape)
+    channel_count = next(iter(channel_counts))
+    estimated_bytes = int(np.prod(shape)) * (192 if combination == "adaptive" else 96) + samples * 24
+    if combination == "adaptive":
+        # Coarse maps/linear algebra, covariance calibration block, FFT and
+        # interpolation temporaries, without allocating a full coil stack.
+        estimated_bytes += channel_count * int(np.prod(grid)) * 96 + channel_count ** 2 * 96
+        estimated_bytes += channel_count * 8192 * 16
     if estimated_bytes > max_bytes:
         raise ValueError(
             f"Preview needs approximately {estimated_bytes / 1024**2:.1f} MiB; "
@@ -183,7 +225,7 @@ def build_cartesian_preview(
                 )
 
     warnings = [
-        "Cartesian quick look: centered 2D inverse FFT; no trajectory, ramp-sampling, "
+        f"Cartesian quick look: inverse FFT axes {', '.join(name.upper() for name in names) or 'none'}; no trajectory, ramp-sampling, "
         "parallel-imaging, oversampling, or image-orientation correction.",
         "Sampling trajectory is not verified. Displayed matrix bounds are inferred from "
         "MDH centers and acquired counters; they do not establish the encoded matrix, "
@@ -194,21 +236,25 @@ def build_cartesian_preview(
         warnings.append("The supplied reader cannot verify physical receiver-channel IDs; channels use ordinal positions.")
     if omitted:
         warnings.append(f"Excluded {omitted:,} non-imaging acquisitions.")
-    duplicates = len(selected) - len(set(line_numbers.tolist()))
+    duplicates = len(selected) - len({(int(scan.partition), int(scan.line)) if volume else int(scan.line) for scan in selected})
     if duplicates:
-        warnings.append(f"Averaged {duplicates:,} repeated readouts at the same line counter.")
+        warnings.append(f"Averaged {duplicates:,} repeated readouts at the same Cartesian position.")
 
-    coverage = np.zeros((ny, nx), dtype=bool)
-    counts = np.zeros((ny, nx), dtype=np.uint32)
+    coverage = np.zeros(shape, dtype=bool)
+    counts = np.zeros(shape, dtype=np.uint32)
     positions = []
     for scan, column in zip(selected, columns):
         y = int(scan.line) - center_y + center_out_y
         x = center_x - column
         if x < 0 or x + samples > nx or y < 0 or y >= ny:
             raise ValueError("Selected acquisition cannot be placed within the bounded Cartesian matrix.")
-        positions.append((y, x))
-        counts[y, x:x + samples] += 1
-        coverage[y, x:x + samples] = True
+        row = (int(scan.partition) - center_z + nz // 2, y) if volume else (y,)
+        if volume and not 0 <= row[0] < nz:
+            raise ValueError("A partition cannot be placed within the bounded Cartesian volume.")
+        position = (*row, slice(x, x + samples))
+        positions.append(position)
+        counts[position] += 1
+        coverage[position] = True
 
     filled_fraction = float(coverage.mean())
     if filled_fraction < 1:
@@ -216,12 +262,11 @@ def build_cartesian_preview(
     if any(bool(scan.reflected) for scan in selected):
         warnings.append("Reflected readouts were reversed before sample placement.")
 
-    channels = list(range(next(iter(channel_counts)))) if all_channels else [int(channel_index)]
-    rss = np.zeros((ny, nx), dtype=np.float64)
-    chosen = None
-    for channel in channels:
-        kspace = np.zeros((ny, nx), dtype=np.complex64)
-        for scan, (y, x) in zip(selected, positions):
+    channels = list(range(channel_count)) if combine else [int(channel_index)]
+
+    def read_coil(channel):
+        kspace = np.zeros(shape, dtype=np.complex64)
+        for scan, position in zip(selected, positions):
             signal = np.asarray(twix.read_signal(measurement, scan, channel), dtype=np.complex64)
             if signal.ndim != 1 or signal.size != samples:
                 raise ValueError(f"Acquisition {scan.index} returned an unexpected readout shape.")
@@ -229,16 +274,56 @@ def build_cartesian_preview(
                 raise ValueError(f"Acquisition {scan.index} contains non-finite complex samples.")
             if scan.reflected:
                 signal = signal[::-1]
-            kspace[y, x:x + samples] += signal
+            kspace[position] += signal
         np.divide(kspace, counts, out=kspace, where=counts > 0)
+        return kspace
+
+    calibration = NoiseCalibration(noise_covariance, {
+        "noise_source": "supplied noise covariance" if noise_covariance is not None else "equal uncorrelated noise assumption"
+    })
+    weights = None
+    if combination == "adaptive":
+        provider = getattr(twix, "noise_calibration", None)
+        if noise_covariance is None and receiver_ids is not None and callable(provider):
+            calibration = provider(measurement, receiver_ids)
+        warnings.extend(calibration.warnings)
+        if calibration.covariance is None:
+            warnings.append("Adaptive weights assume equal, uncorrelated receiver noise; no measured noise covariance was applied.")
+        responses = np.empty((len(channels), *grid), dtype=np.complex64)
+        for channel in channels:
+            kspace = read_coil(channel)
+            responses[channel] = coarse_response(centered_ifft(kspace, axes), grid)
+        weights = adaptive_weights(responses, calibration.covariance)
+        del responses, kspace
+        warnings.append("Adaptive combination uses estimated coarse channel responses and a regularized noise-weighted matched filter; optimal SNR depends on these estimates. Magnitudes retain relative signal units, not absolute SNR.")
+        if len(names) < len(shape):
+            warnings.append("Adaptive responses are estimated in the selected hybrid/k-space domain because some inverse FFT axes are off.")
+
+    rss = np.zeros(shape, dtype=np.float64)
+    coherent = np.zeros(shape, dtype=np.complex64) if weights is not None else None
+    weight_energy = np.zeros(shape, dtype=np.float32) if weights is not None else None
+    chosen = None
+    for channel in channels:
+        kspace = read_coil(channel)
         if channel == channel_index:
             chosen = kspace
-        transformed = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(kspace)))
+        transformed = centered_ifft(kspace, axes)
         rss += np.square(np.abs(transformed))
+        if weights is not None:
+            weight = interpolate_response(weights[channel], shape)
+            coherent += np.conj(weight) * transformed
+            weight_energy += np.abs(weight) ** 2
     if chosen is None:
         raise ValueError("The selected channel is unavailable for the requested coil combination.")
 
     image = np.sqrt(rss).astype(np.float32)
+    fallback = 0.0
+    if weights is not None:
+        valid = weight_energy > 1e-12
+        np.divide(np.abs(coherent), np.sqrt(weight_energy), out=image, where=valid)
+        fallback = float(np.mean(~valid))
+        if fallback:
+            warnings.append(f"RSS fallback at {100 * fallback:.2f}% of positions without usable adaptive response estimates.")
     return Preview(
         kspace=chosen,
         image=image,
@@ -248,17 +333,25 @@ def build_cartesian_preview(
         channel_count=len(channels),
         metadata={
             **group,
-            "shape": (ny, nx),
+            "shape": shape,
+            "array_axes": ["z", "y", "x"] if volume else ["y", "x"],
+            "ifft_axes": list(names),
+            "partitions": (np.arange(nz) - nz // 2 + center_z).tolist() if volume else [group["partition"]],
             "selected_channel": int(channel_index),
             "selected_channel_id": receiver_ids[channel_index] if receiver_ids is not None else None,
             "channel_ids": list(receiver_ids) if receiver_ids is not None else None,
             "channel_ids_verified": receiver_ids is not None,
-            "combination": "root-sum-of-squares" if all_channels else "single-channel magnitude",
+            "combination": {"single": "single-channel magnitude", "rss": "root-sum-of-squares", "adaptive": "adaptive noise-weighted"}[combination],
+            "combination_method": combination,
+            **(dict(calibration.metadata, noise_covariance_used=calibration.covariance is not None,
+                    adaptive_grid=list(grid), adaptive_rss_fallback_fraction=fallback,
+                    covariance_shrinkage=0.01, weight_normalization="unit Euclidean norm") if weights is not None else {}),
             "acquired_fraction": filled_fraction,
             "readouts": len(selected),
             "repeated_readouts": duplicates,
             "center_column": center_x,
             "center_line": center_y,
+            "center_partition": center_z if volume else int(getattr(selected[0], "center_partition", 0)),
             "estimated_bytes": estimated_bytes,
             "inferred_matrix": True,
             "trajectory_verified": False,

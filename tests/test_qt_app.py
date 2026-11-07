@@ -18,7 +18,8 @@ import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QImage, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QAbstractButton, QMessageBox
+from PySide6.QtWidgets import QApplication, QAbstractButton
+from siemens_explorer.qt_dialogs import QMessageBox
 
 from siemens_explorer.qt_app import MainWindow
 from siemens_explorer.twix import TwixFile, create_demo_file
@@ -58,6 +59,8 @@ class NativeExplorerTests(unittest.TestCase):
             self.window.close()
             self.window.pool.waitForDone(5000)
             self.app.processEvents()
+            self.window.deleteLater()
+            QTest.qWait(1)
         finally:
             for item in reversed(self.dialogs):
                 item.stop()
@@ -66,7 +69,9 @@ class NativeExplorerTests(unittest.TestCase):
         deadline = time.monotonic() + timeout
         while not condition():
             self.app.processEvents()
-            QTest.qWait(2)
+            # Release the GIL so the Python reader worker can finish its I/O.
+            # Qt's nested QTest wait can stall it after many GUI tests.
+            time.sleep(0.002)
             if time.monotonic() > deadline:
                 self.fail(f"Qt operation did not finish within {timeout} seconds")
         self.app.processEvents()
@@ -193,6 +198,25 @@ class NativeExplorerTests(unittest.TestCase):
         self.assertEqual(metadata["measurement"]["id"], self.window.measurement.id)
         self.assertEqual(metadata["measurement"]["protocol"]["alTE[0]"], 4500)
 
+    def test_ismrmrd_menu_exports_indexed_measurement_in_background(self):
+        import ismrmrd
+        from siemens_explorer.qt_dialogs import QFileDialog
+        ui = self.window
+        self.select_counter("echo", 1)
+        self.assertEqual(len(ui.filtered), 64)
+        path = self.root / "dataset.h5"
+        with patch.object(QFileDialog, "getSaveFileName", return_value=(str(path), "ISMRMRD HDF5")):
+            ui.export_actions["ismrmrd"].trigger()
+        self.assertTrue(ui.busy)
+        self.assertEqual(ui._job_kind, "export_ismrmrd")
+        self.wait_idle()
+        self.assertFalse(ui.last_error, ui.last_error)
+        dataset = ismrmrd.Dataset(str(path), create_if_needed=False)
+        try:
+            self.assertEqual(dataset.number_of_acquisitions(), 260)
+        finally:
+            dataset.close()
+
     def test_cartesian_preview_export_and_coil_change_invalidation(self):
         ui = self.window
         ui.build_preview()
@@ -211,7 +235,10 @@ class NativeExplorerTests(unittest.TestCase):
         ui.rss.setChecked(True)
         self.app.processEvents()
         self.assertIsNone(ui.preview)
-        self.assertIsNone(ui.preview_view.preview)
+        # Keep the last image/zoom visible while the new combination loads;
+        # the exportable preview is invalidated immediately.
+        self.assertIsNotNone(ui.preview_view.preview)
+        self.assertFalse(ui.export_actions["preview"].isEnabled())
         ui.build_preview()
         self.wait_idle()
         self.assertEqual(ui.preview.channel_count, 4)
@@ -239,7 +266,7 @@ class NativeExplorerTests(unittest.TestCase):
     def test_empty_selection_clears_signal_and_preview(self):
         ui = self.window
         self.select_counter("slice", 1)
-        ui.kind.setCurrentText("Noise")
+        ui.kind.setCurrentText("Calibration")
         self.app.processEvents()
         self.assertEqual(len(ui.filtered), 0)
         self.assertEqual(ui.acq_model.rowCount(), 0)
@@ -248,7 +275,7 @@ class NativeExplorerTests(unittest.TestCase):
         ui.kind.setCurrentText("Image")
         self.app.processEvents()
         self.assertEqual(len(ui.filtered), 64)
-        self.assertEqual(ui.signal_view.scan.slice, 1)
+        self.assertEqual(ui.signal_view.scan.slice, 0)
 
     def test_bad_new_file_preserves_previous_dataset_and_signal(self):
         ui = self.window
@@ -407,6 +434,118 @@ class NativeExplorerTests(unittest.TestCase):
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window).name(), DARK["window"])
         np.testing.assert_array_equal(ui.signal_view.signal, signal)
         self.assertEqual(len(ui.scans), 260)
+
+    def test_data_selection_dock_is_independent_and_preserves_live_selection(self):
+        ui = self.window
+        self.select_counter("slice", 1)
+        self.select_counter("echo", 1)
+        ui.channel_selector.slider.setValue(2)
+        self.wait_for(lambda: ui.preview is not None and not ui.busy
+                      and not ui._pending_preview and not ui._preview_timer.isActive())
+        previous = ui.preview
+        raw = ui.twix
+        dock = ui.selection_dock
+        dock.setFloating(True)
+        self.app.processEvents()
+        self.assertTrue(dock.isFloating())
+        self.assertIs(dock.titleBarWidget(), dock.floating_title_bar)
+        self.assertEqual(dock.floating_title_bar.title.text(), "Data selection")
+        ui.explorer_dock.close()
+        self.app.processEvents()
+        self.assertTrue(dock.isVisible())
+        self.assertIs(ui.twix, raw)
+        self.assertIs(ui.preview, previous)
+        ui.channel_selector.slider.setValue(3)
+        self.wait_for(lambda: ui.preview is not None and not ui.busy
+                      and not ui._pending_preview and not ui._preview_timer.isActive())
+        self.assertEqual(ui.preview.metadata["selected_channel"], 3)
+        self.assertEqual(ui.preview.metadata["slice"], 1)
+        self.assertEqual(ui.preview.metadata["echo"], 1)
+        dock.floating_title_bar.close_button.click()
+        self.app.processEvents()
+        self.assertFalse(dock.isVisible())
+        self.assertFalse(dock.toggleViewAction().isChecked())
+        dock.toggleViewAction().trigger()
+        self.app.processEvents()
+        self.assertTrue(dock.isVisible())
+        self.assertEqual(ui.channel_selector.spin.value(), 3)
+        self.assertEqual(ui.counter_widgets["slice"].currentData(), 1)
+        self.assertEqual(ui.counter_widgets["echo"].currentData(), 1)
+        dock.setFloating(False)
+        ui.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.app.processEvents()
+        self.assertEqual(ui.dockWidgetArea(dock), Qt.DockWidgetArea.RightDockWidgetArea)
+        self.assertFalse(dock.isFloating())
+        ui.explorer_dock.toggleViewAction().trigger()
+        self.app.processEvents()
+        self.assertTrue(ui.explorer_dock.isVisible())
+        self.assertTrue(dock.isVisible())
+
+    def test_preview_notes_menu_and_resize_survive_channel_updates(self):
+        ui = self.window
+        self.assertFalse(ui.preview_notes_action.isChecked())
+        self.assertTrue(ui.preview_view.notes.isHidden())
+        ui.preview_notes_action.trigger()
+        self.assertEqual(ui.tabs.currentIndex(), 3)
+        self.wait_for(lambda: not ui.busy and not ui._pending_preview and not ui._preview_timer.isActive())
+        self.assertIsNotNone(ui.preview)
+        self.assertTrue(ui.preview_view.notes.isVisible())
+        self.assertIs(ui.slice_navigation.parentWidget(), ui.preview_view.image_panel)
+        self.assertGreater(ui.slice_navigation.y(), ui.preview_view.splitter.y() + ui.preview_view.splitter.height() - 1)
+        self.assertLess(ui.slice_navigation.mapTo(ui.preview_view, ui.slice_navigation.rect().bottomLeft()).y(), ui.preview_view.notes.mapTo(ui.preview_view, ui.preview_view.notes.rect().topLeft()).y())
+        ui.preview_view.details_splitter.setSizes([300, 160])
+        self.app.processEvents()
+        notes_height = ui.preview_view.notes.height()
+        ui.select_channel(1)
+        self.wait_for(lambda: not ui.busy and not ui._pending_preview and not ui._preview_timer.isActive())
+        self.assertTrue(ui.preview_view.notes.isVisible())
+        self.assertAlmostEqual(ui.preview_view.notes.height(), notes_height, delta=2)
+        ui.preview_notes_action.trigger()
+        self.assertTrue(ui.preview_view.notes.isHidden())
+        self.assertFalse(ui.preview_notes_action.isChecked())
+        ui.tabs.setCurrentIndex(1)
+        self.assertIs(ui.slice_navigation.parentWidget(), ui.centralWidget())
+        self.assertTrue(ui.slice_navigation.isVisible())
+
+    def test_cockpit_switch_preserves_preview_selection_levels_and_dialog_style(self):
+        from siemens_explorer.qt_dialogs import QMessageBox
+        from siemens_explorer.qt_theme import COCKPIT
+
+        ui = self.window
+        ui.tabs.setCurrentIndex(3)
+        self.wait_for(lambda: not ui.busy and not ui._pending_preview and not ui._preview_timer.isActive())
+        ui.select_channel(2)
+        self.wait_for(lambda: not ui.busy and not ui._pending_preview and not ui._preview_timer.isActive())
+        preview = ui.preview
+        signal = ui.signal_view.signal.copy()
+        ui.preview_view.image_view.setLevels(0.25, 0.75)
+        ui.resizeDocks([ui.explorer_dock, ui.selection_dock], [220, 400], Qt.Orientation.Vertical)
+        self.app.processEvents()
+        measurement_height = ui.explorer_dock.height()
+        dialog = QMessageBox(ui)
+        dialog.setText("Theme check")
+        try:
+            for theme in ("cockpit", "modern-light", "light", "dark", "cockpit"):
+                ui.set_theme(theme)
+                self.app.processEvents()
+                self.assertEqual(self.app.property("explorerTheme"), theme)
+                selected = [a for a in ui.theme_group.actions() if a.isChecked()]
+                self.assertEqual([a.data() for a in selected], [theme])
+                if theme in ("cockpit", "modern-light"):
+                    self.assertEqual(ui.title_bar.height(), 32)
+                    self.assertEqual(dialog.title_bar.height(), 32)
+                    self.assertEqual(ui.selection_dock.floating_title_bar.height(), 32)
+                self.assertIs(ui.preview, preview)
+                self.assertEqual(ui.channel.currentData(), 2)
+                np.testing.assert_array_equal(ui.signal_view.signal, signal)
+                np.testing.assert_allclose(ui.preview_view.image_view.getLevels(), [0.25, 0.75])
+                self.assertAlmostEqual(ui.explorer_dock.height(), measurement_height, delta=3)
+            self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window).name(), COCKPIT["window"])
+            self.assertEqual(dialog.title_bar.title.palette().windowText().color().name(), ui.title_bar.title.palette().windowText().color().name())
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+            ui.set_theme("light")
 
 
 if __name__ == "__main__":

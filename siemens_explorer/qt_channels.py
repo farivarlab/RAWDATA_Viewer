@@ -1,141 +1,125 @@
-"""Compact native receive-channel browsing controls."""
+"""One-row receive-channel selection for the Data selection form."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QVBoxLayout, QWidget,
-)
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QSpinBox, QWidget
+
+from .qt_wheel import WheelSlider
 
 
-class ChannelBrowser(QWidget):
-    """Browse ordinal channel positions while showing physical receiver IDs.
+class ChannelSelector(QWidget):
+    """Select a channel ordinal, retaining physical receiver IDs in tooltips.
 
-    Only interaction through the list or step buttons emits ``channel_selected``.
-    The synchronization methods are deliberately silent so a containing window
-    can mirror its selection without starting another read or reconstruction.
+    User slider/numeric changes emit channel_selected. Synchronization from the
+    containing window is silent, including during a partial wheel gesture.
     """
 
     channel_selected = Signal(int)
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("channelBrowser")
+        self.setObjectName("channelSelector")
         self._channel_ids: list[int | None] = []
+        self._current = 0
         self._navigation_enabled = True
-
-        self.list = QListWidget(self)
-        self.list.setObjectName("receiveChannelList")
-        self.list.setAccessibleName("Individual receive channels")
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list.setMinimumHeight(95)
-        self.list.setMaximumHeight(150)
-        self.list.setAlternatingRowColors(True)
-        self.list.currentRowChanged.connect(self._selection_changed)
-
-        self.prev_button = QPushButton("‹", self)
-        self.prev_button.setObjectName("previousChannelButton")
-        self.prev_button.setAccessibleName("Previous receive channel")
-        self.prev_button.setToolTip("Previous receive channel")
-        self.prev_button.setFixedWidth(30)
-        self.prev_button.clicked.connect(lambda: self.step_channel(-1))
-        self.next_button = QPushButton("›", self)
-        self.next_button.setObjectName("nextChannelButton")
-        self.next_button.setAccessibleName("Next receive channel")
-        self.next_button.setToolTip("Next receive channel")
-        self.next_button.setFixedWidth(30)
-        self.next_button.clicked.connect(lambda: self.step_channel(1))
-        self.count = QLabel(self)
-        self.count.setObjectName("receiveChannelPosition")
-        self.count.setTextFormat(Qt.TextFormat.PlainText)
-        self.count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        steps = QHBoxLayout()
-        steps.setContentsMargins(0, 0, 0, 0)
-        steps.addWidget(self.prev_button)
-        steps.addWidget(self.count, 1)
-        steps.addWidget(self.next_button)
-        hint = QLabel("Select a channel to view it individually.", self)
-        hint.setObjectName("muted")
-        hint.setTextFormat(Qt.TextFormat.PlainText)
-        hint.setWordWrap(True)
-
-        layout = QVBoxLayout(self)
+        self.slider = WheelSlider(Qt.Orientation.Horizontal, self)
+        self.slider.setObjectName("receiveChannelSlider")
+        self.slider.setAccessibleName("Receive channel slider")
+        self.slider.setMinimumWidth(55)
+        self.slider.setSingleStep(1)
+        self.slider.setPageStep(1)
+        self.slider.valueChanged.connect(self._value_changed)
+        # Pressing the current thumb also selects this individual channel when
+        # the image is displaying a combined-channel reconstruction.
+        self.slider.sliderPressed.connect(self._activate_current)
+        self.spin = QSpinBox(self)
+        self.spin.setObjectName("receiveChannelValue")
+        self.spin.setAccessibleName("Receive channel number")
+        self.spin.setFixedWidth(72)
+        self.spin.setKeyboardTracking(False)
+        self.spin.valueChanged.connect(self._value_changed)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self.list)
-        layout.addLayout(steps)
-        layout.addWidget(hint)
-        self._update_controls()
+        layout.setSpacing(5)
+        self.minimum_label, self.maximum_label = QLabel(), QLabel()
+        for endpoint in (self.minimum_label, self.maximum_label):
+            endpoint.setObjectName("sliderEndpoint")
+        self.minimum_label.setToolTip("First receive-channel ordinal.")
+        self.maximum_label.setToolTip("Last receive-channel ordinal in this measurement.")
+        layout.addWidget(self.minimum_label)
+        layout.addWidget(self.slider, 1)
+        layout.addWidget(self.maximum_label)
+        layout.addWidget(self.spin)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFocusProxy(self.slider)
+        self._sync()
 
     @property
-    def channel_ids(self) -> list[int | None]:
+    def channel_ids(self):
         return list(self._channel_ids)
 
-    def set_channels(self, channel_ids: list[int | None], selected: int = 0) -> None:
-        """Replace the available ordinal positions without emitting selection."""
-        ids = [None if value is None else int(value) for value in channel_ids]
-        previous = self.list.blockSignals(True)
-        try:
-            self._channel_ids = ids
-            self.list.clear()
-            for ordinal, physical_id in enumerate(ids):
-                suffix = f"ID {physical_id}" if physical_id is not None else "ID unavailable"
-                item = QListWidgetItem(f"Channel {ordinal}  ·  {suffix}")
-                item.setData(Qt.ItemDataRole.UserRole, ordinal)
-                item.setToolTip(f"Channel position {ordinal}\nPhysical receiver {suffix}")
-                self.list.addItem(item)
-            if ids:
-                self.list.setCurrentRow(max(0, min(int(selected), len(ids) - 1)))
-                self.list.scrollToItem(self.list.currentItem())
-        finally:
-            self.list.blockSignals(previous)
-        self._update_controls()
+    def current_channel(self):
+        return self._current
 
-    def set_current_channel(self, ordinal: int) -> None:
-        """Silently mirror an ordinal selection from another application control."""
-        if not self._channel_ids:
-            return
-        row = max(0, min(int(ordinal), len(self._channel_ids) - 1))
-        previous = self.list.blockSignals(True)
-        try:
-            self.list.setCurrentRow(row)
-            self.list.scrollToItem(self.list.currentItem())
-        finally:
-            self.list.blockSignals(previous)
-        self._update_controls()
+    def set_channels(self, channel_ids, selected=0):
+        """Replace available receivers without emitting a user selection."""
+        self._channel_ids = [None if value is None else int(value) for value in channel_ids]
+        self.slider.reset_wheel()
+        self.set_current_channel(selected)
 
-    def clear(self) -> None:
+    def set_current_channel(self, ordinal):
+        target = max(0, min(int(ordinal), len(self._channel_ids) - 1))
+        if target != self.slider.value():
+            self.slider.reset_wheel()
+        self._current = target
+        self._sync()
+
+    def clear(self):
         self.set_channels([])
 
-    def set_navigation_enabled(self, enabled: bool) -> None:
+    def set_navigation_enabled(self, enabled):
+        if self._navigation_enabled != bool(enabled):
+            self.slider.reset_wheel()
         self._navigation_enabled = bool(enabled)
-        self._update_controls()
+        self._sync()
 
-    def step_channel(self, delta: int) -> bool:
+    def step_channel(self, delta):
         if not self._navigation_enabled or not self.isEnabled() or not self._channel_ids:
             return False
-        current = self.list.currentRow()
-        target = max(0, min(current + int(delta), len(self._channel_ids) - 1))
-        if target == current:
+        target = max(0, min(self._current + int(delta), len(self._channel_ids) - 1))
+        if target == self._current:
             return False
-        self.list.setCurrentRow(target)
-        self.list.scrollToItem(self.list.currentItem())
+        self.slider.setValue(target)
         return True
 
-    def _selection_changed(self, row: int) -> None:
-        self._update_controls()
-        if 0 <= row < len(self._channel_ids):
-            self.channel_selected.emit(row)
+    def _value_changed(self, ordinal):
+        if not self._navigation_enabled or not self.isEnabled() or not self._channel_ids:
+            self._sync()
+            return
+        changed = ordinal != self._current
+        self.set_current_channel(ordinal)
+        if changed:
+            self.channel_selected.emit(self._current)
 
-    def _update_controls(self) -> None:
+    def _activate_current(self):
+        if self._channel_ids and self._navigation_enabled and self.isEnabled():
+            self.channel_selected.emit(self._current)
+
+    def _sync(self):
         count = len(self._channel_ids)
-        row = self.list.currentRow()
-        enabled = self._navigation_enabled and count > 0
-        self.list.setEnabled(enabled)
-        self.prev_button.setEnabled(enabled and row > 0)
-        self.next_button.setEnabled(enabled and 0 <= row < count - 1)
-        self.count.setText(f"{row + 1} / {count} channels" if count else "No channels")
+        self.minimum_label.setText("0" if count else "—")
+        self.maximum_label.setText(str(count - 1) if count else "—")
+        with QSignalBlocker(self.slider), QSignalBlocker(self.spin):
+            for control in (self.slider, self.spin):
+                control.setRange(0, max(0, count - 1))
+                control.setValue(self._current)
+                control.setEnabled(self._navigation_enabled and count > 0)
+        physical = self._channel_ids[self._current] if count else None
+        tooltip = (f"Channel {self._current} (zero-based) · {count} channels\n"
+                   f"Physical receiver ID {physical if physical is not None else 'unavailable'}\n"
+                   "Drag or wheel to select a channel; type its number to jump.\n"
+                   "Wheel down advances; Ctrl+Left / Ctrl+Right also steps between channels."
+                   if count else "No receive channels. Open a measurement to select a channel.")
+        for control in (self, self.slider, self.spin):
+            control.setToolTip(tooltip)

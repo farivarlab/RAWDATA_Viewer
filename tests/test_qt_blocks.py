@@ -108,7 +108,7 @@ class DataBlocksTests(unittest.TestCase):
         self.assertEqual(header.data(0)["offset"], self.measurement.offset)
         self.assertAlmostEqual(header.rect().width(), max(1, 1100 * self.measurement.header_length / self.measurement.length))
         self.assertEqual(len(self.blocks("channel")), 4)
-        self.assertIn("payloads are not loaded", self.widget.summary.text())
+        self.assertIn("payloads are not loaded", self.widget.summary.toolTip())
 
     def test_sync_and_variable_channel_counts_have_no_fabricated_tiles(self):
         image = self.scans[10]
@@ -126,11 +126,44 @@ class DataBlocksTests(unittest.TestCase):
         self.assertEqual(self.widget._visible_acquisitions, 256)
         self.assertEqual(self.widget._visible_channels, 256 * 4)
         self.assertIn("256 of 2,000", self.widget.summary.text())
+        self.assertIn("Display limit reached", self.widget.summary.text())
         self.widget.set_data(self.raw, self.measurement, [replace(scan, channels=65535)])
         self.assertEqual(self.widget._visible_channels, 4096)
         self.assertEqual(len(self.blocks("channel")), 4096)
         self.assertLess(len(self.widget.scene.items()), 9000)
         self.assertIn("further channel blocks omitted", " ".join(item.text() for item in self.widget.scene.items() if hasattr(item, "text")))
+
+    def test_file_strip_tracks_selected_channel_beyond_the_first_64(self):
+        scan = replace(self.scans[10], channels=108, length=192 + 108 * (32 + self.scans[10].samples * 8))
+        self.widget.set_data(self.raw, self.measurement, [scan], selected_channel=107)
+        self.widget.mode.setCurrentText("File layout")
+        self.assertEqual(len(self.blocks("channel")), 64)
+        selected = self.widget._channel_items[(scan.index, 107)][0]
+        self.assertEqual(selected.pen().width(), 3)
+        self.assertEqual(selected.data(0)["offset"], scan.offset + 192 + 107 * (32 + scan.samples * 8))
+        self.widget.set_selection(scan.index, 0)
+        self.assertEqual(len(self.blocks("channel")), 64)
+        self.assertEqual(self.widget._channel_items[(scan.index, 0)][0].pen().width(), 3)
+
+    def test_file_strip_never_invents_channels_for_sync_or_empty_readouts(self):
+        image = self.scans[10]
+        for scan in (replace(image, flags=("SYNCDATA",)), replace(image, samples=0)):
+            self.widget.set_data(self.raw, self.measurement, [scan])
+            for mode in (0, 1):
+                self.widget.mode.setCurrentIndex(mode)
+                self.assertEqual(self.blocks("channel"), [])
+                self.assertEqual(self.widget._channel_items, {})
+
+    def test_clearing_a_zoomed_scrolled_map_keeps_the_empty_state_visible(self):
+        scan = self.scans[10]
+        self.widget.set_data(self.raw, self.measurement, [replace(scan, index=i) for i in range(300)])
+        self.widget.view.scale(5, 5)
+        self.widget.view.verticalScrollBar().setValue(self.widget.view.verticalScrollBar().maximum())
+        self.widget.clear()
+        _APP.processEvents()
+        text = next(item for item in self.widget.scene.items() if hasattr(item, "text"))
+        self.assertTrue(self.widget.view.viewport().rect().contains(self.widget.view.mapFromScene(text.pos())))
+        self.assertEqual(self.widget.view.transform().m11(), 1)
 
     def test_empty_missing_and_zero_length_inputs_remain_usable(self):
         self.widget.set_data(self.raw, self.measurement, [])
@@ -142,7 +175,7 @@ class DataBlocksTests(unittest.TestCase):
         self.assertTrue(self.widget.scene.sceneRect().isValid())
         self.widget.set_data(None, None, [])
         self.assertEqual(self.widget._channel_items, {})
-        self.assertIn("Open a dataset", self.widget.summary.text())
+        self.assertEqual("No dataset", self.widget.summary.text())
 
     def test_diagram_labels_remain_high_contrast_in_both_application_themes(self):
         self.widget.set_data(self.raw, self.measurement, [self.scans[5]])
@@ -153,8 +186,9 @@ class DataBlocksTests(unittest.TestCase):
             return sum(weight * channel for weight, channel in zip((0.2126, 0.7152, 0.0722), linear))
 
         try:
-            for theme in ("light", "dark"):
+            for theme in ("light", "dark", "cockpit", "modern-light"):
                 apply_theme(_APP, theme)
+                self.widget.set_theme(theme)
                 _APP.processEvents()
                 background = luminance(self.widget.scene.backgroundBrush().color())
                 texts = [item for item in self.widget.scene.items() if hasattr(item, "text") and item.parentItem() is None]
@@ -163,8 +197,53 @@ class DataBlocksTests(unittest.TestCase):
                     foreground = luminance(item.brush().color())
                     contrast = (max(background, foreground) + 0.05) / (min(background, foreground) + 0.05)
                     self.assertGreaterEqual(contrast, 4.5)
+                for item in self.blocks("channel"):
+                    background = luminance(item.brush().color())
+                    for label in item.childItems():
+                        foreground = luminance(label.brush().color())
+                        contrast = (max(background, foreground) + 0.05) / (min(background, foreground) + 0.05)
+                        self.assertGreaterEqual(contrast, 4.5)
         finally:
             apply_theme(_APP, "light")
+
+    def test_cockpit_theme_preserves_selection_zoom_scroll_and_graphics_items(self):
+        scans = self.scans[5:65]
+        selected_scan = scans[8]
+        self.widget.set_data(self.raw, self.measurement, scans, selected_scan=selected_scan, selected_channel=2)
+        self.widget.view.scale(1.8, 1.8)
+        self.widget.view.horizontalScrollBar().setValue(50)
+        self.widget.view.verticalScrollBar().setValue(400)
+        _APP.processEvents()
+        items = list(self.widget.scene.items())
+        transform = self.widget.view.transform()
+        scroll = (self.widget.view.horizontalScrollBar().value(), self.widget.view.verticalScrollBar().value())
+        raw = self.widget.raw
+        stored_scans = self.widget.scans
+        selected = self.widget._channel_items[(selected_scan.index, 2)][0]
+        for theme, canvas, outline in (("cockpit", "#161616", "#d4d4d4"),
+                                       ("modern-light", "#f9f9f9", "#3f3f3f"),
+                                       ("light", "#f5f6f7", "#2369a0")):
+            self.widget.set_theme(theme)
+            _APP.processEvents()
+            self.assertEqual(self.widget.scene.backgroundBrush().color().name(), canvas)
+            self.assertEqual(selected.pen().color().name(), outline)
+            self.assertEqual(selected.pen().width(), 3)
+            self.assertEqual(list(self.widget.scene.items()), items)
+            self.assertEqual(self.widget.view.transform(), transform)
+            self.assertEqual((self.widget.view.horizontalScrollBar().value(), self.widget.view.verticalScrollBar().value()), scroll)
+            self.assertIs(self.widget.raw, raw)
+            self.assertIs(self.widget.scans, stored_scans)
+            self.assertEqual((self.widget.selected_scan, self.widget.selected_channel), (selected_scan.index, 2))
+
+    def test_cockpit_colors_apply_to_new_and_cleared_maps(self):
+        self.widget.set_theme("cockpit")
+        self.widget.set_data(self.raw, self.measurement, self.scans[5:7])
+        self.assertEqual(self.widget.scene.backgroundBrush().color().name(), "#161616")
+        channel = self.blocks("channel")[0]
+        self.assertEqual(channel.brush().color().name(), "#2f2f2f")
+        self.widget.clear()
+        text = next(item for item in self.widget.scene.items() if hasattr(item, "text"))
+        self.assertEqual(text.brush().color().name(), "#dcdcdc")
 
 
 if __name__ == "__main__":

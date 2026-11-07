@@ -418,6 +418,14 @@ class TwixFile:
                 raise TwixError("VB channels have inconsistent sample counts; cannot decode this acquisition.")
         return channel_offset + channel_header_len, channel_id
 
+    def read_mdh(self, measurement: Measurement | int, scan: Scan) -> bytes:
+        """Read the stored acquisition header for geometry/export metadata."""
+        measurement = self._measurement(measurement)
+        if scan.offset < measurement.data_offset or scan.offset + scan.length > measurement.offset + measurement.length:
+            raise TwixError("Acquisition falls outside the selected measurement.")
+        return self._read(scan.offset, 128 if measurement.format == "VB" else 192,
+                          end=measurement.offset + measurement.length)
+
     def channel_ids(self, measurement: Measurement | int, scan: Scan) -> list[int]:
         measurement = self._measurement(measurement)
         return [self._channel_location(measurement, scan, c)[1] for c in range(scan.channels)]

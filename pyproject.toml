@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "siemens-rawdata-explorer"
+name = "raw-mri-data-explorer"
 version = "0.2.0"
 description = "A native Qt desktop explorer for Siemens MRI Twix raw data"
 readme = "README.md"
@@ -13,13 +13,15 @@ dependencies = [
   "pandas>=2.1,<4",
   "PySide6-Essentials>=6.12,<7",
   "pyqtgraph>=0.14,<0.15",
+  "ismrmrd>=1.15,<2",
 ]
 
 [project.gui-scripts]
+raw-mri-data-explorer = "siemens_explorer.__main__:main"
 siemens-explorer = "siemens_explorer.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["siemens_explorer*"]
 
 [tool.setuptools.package-data]
-siemens_explorer = ["resources/*.svg", "resources/*.ico"]
+siemens_explorer = ["resources/*.svg", "resources/*.ico", "resources/*.md", "resources/glyphs/*.svg", "resources/themes/*.json", "resources/themes/*.qss"]

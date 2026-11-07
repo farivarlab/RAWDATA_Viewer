@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication
 from siemens_explorer import qt_app
 from siemens_explorer.qt_app import MainWindow
 from siemens_explorer.twix import TwixFile, create_demo_file
+from wheel_events import wheel
 
 
 class SliceNavigationTests(unittest.TestCase):
@@ -73,12 +74,14 @@ class SliceNavigationTests(unittest.TestCase):
         self.window.close()
         self.window.pool.waitForDone(5000)
         self.app.processEvents()
+        self.window.deleteLater()
+        QTest.qWait(1)
 
     def wait_for(self, condition, timeout=12):
         deadline = time.monotonic() + timeout
         while not condition():
             self.app.processEvents()
-            QTest.qWait(3)
+            time.sleep(0.003)
             if time.monotonic() > deadline:
                 self.fail(f"Slice operation did not settle within {timeout} seconds")
         self.app.processEvents()
@@ -112,7 +115,7 @@ class SliceNavigationTests(unittest.TestCase):
         self.wait_settled()
         self.assertIsNotNone(self.window.preview)
 
-    def test_slider_spin_buttons_and_counter_dropdown_stay_synchronized(self):
+    def test_slider_spin_buttons_and_counter_slider_stay_synchronized(self):
         ui = self.window
         self.assertEqual(ui._slice_values, [0, 1])
         self.assertEqual(ui.slice_axis.currentData(), "slice")
@@ -142,6 +145,55 @@ class SliceNavigationTests(unittest.TestCase):
         self.assertEqual((ui.slice_slider.value(), ui.slice_spin.value()), (0, 1))
         ui.previous_slice_button.click()
         self.assertEqual(ui.counter_widgets["slice"].currentData(), 0)
+
+    def test_echo_slider_hover_wheel_changes_data_and_preserves_window_levels(self):
+        ui = self.window
+        self.build_preview()
+        ui.preview_view.image_view.setLevels(0.15, 0.65)
+        previous = ui.preview.image.copy()
+        ui.counter_widgets["echo"].slider.clearFocus()
+        wheel(ui.counter_widgets["echo"].slider, angle=-120)
+        self.wait_settled()
+        self.assertEqual(ui.counter_widgets["echo"].currentData(), 1)
+        self.assertEqual(ui.preview.metadata["echo"], 1)
+        self.assertFalse(np.allclose(ui.preview.image, previous))
+        np.testing.assert_allclose(ui.preview_view.image_view.getLevels(), [0.15, 0.65])
+
+    def test_bottom_slider_hover_wheel_steps_observed_noncontiguous_slices(self):
+        ui = self.window
+        self.open_fixture(self.sparse)
+        ui.slice_slider.clearFocus()
+        wheel(ui.slice_slider, angle=-120)
+        self.wait_settled()
+        self.assertEqual(ui.counter_widgets["slice"].currentData(), 9)
+        self.assertEqual(ui.slice_spin.value(), 2)
+        wheel(ui.slice_slider, angle=120)
+        self.wait_settled()
+        self.assertEqual(ui.counter_widgets["slice"].currentData(), 3)
+        self.assertEqual(ui.signal_view.scan.slice, 3)
+
+    def test_other_counter_sliders_remain_usable_during_preview_loading(self):
+        ui = self.window
+        started = threading.Event()
+        release = threading.Event()
+        original = qt_app.build_cartesian_preview
+        def delayed(*args, **kwargs):
+            started.set()
+            release.wait(2)
+            return original(*args, **kwargs)
+        with patch.object(qt_app, "build_cartesian_preview", delayed):
+            ui.tabs.setCurrentIndex(3)
+            ui.counter_widgets["echo"].slider.setFocus()
+            self.app.processEvents()
+            self.assertTrue(ui.counter_widgets["echo"].slider.hasFocus())
+            self.wait_for(started.is_set)
+            self.assertTrue(ui.counter_widgets["echo"].slider.isEnabled())
+            self.assertTrue(ui.counter_widgets["echo"].slider.hasFocus())
+            self.assertTrue(all(control.isEnabled() for control in ui.counter_widgets.values()))
+            ui.counter_widgets["echo"].slider.setValue(2)
+            release.set()
+            self.wait_settled()
+        self.assertEqual(ui.preview.metadata["echo"], 1)
 
     def test_image_scroll_signal_updates_slice_and_rebuilds_actual_preview(self):
         ui = self.window
