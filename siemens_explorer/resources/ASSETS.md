@@ -18,6 +18,10 @@ appearances. Each JSON names a global stylesheet and a title-bar stylesheet.
 - `stylesheet` and `caption_stylesheet`: relative `.qss` filenames kept inside
   `themes/`. Classic light and dark share the classic templates.
 
+Modern block maps use muted blue for measurements, purple for headers, green
+for channel samples, and amber for noise, with neutral container/sync blocks.
+Their `block_*` colors are independently editable in each modern theme JSON.
+
 QSS is Qt's CSS-like stylesheet format. A token such as `%(accent)s` uses the
 matching color from JSON. Spacing, padding, borders, corner radii, and control
 sizes are editable directly in QSS. Arrow path tokens and `%(checkmark)s` are
@@ -53,4 +57,6 @@ editors too. Saving changes and using theme-asset reload refreshes the artwork.
 Edit `logo.svg` at the project root. The program rereads this SVG on launch and
 on **Reload appearance assets**; window captions, About dialogs, splash screens,
 and application icons use it. The multi-size Windows ICO is generated from the
-same artwork. Keep the SVG self-contained with a viewBox and transparency.
+same artwork. Matching project-folder Windows shortcuts are repointed to a
+versioned icon in `.cache/icons` and Explorer is notified on launch/reload.
+Keep the SVG self-contained with a viewBox and transparency.

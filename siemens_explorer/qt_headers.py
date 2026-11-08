@@ -54,8 +54,16 @@ class HeaderTree(QTreeWidget):
                 parent.setData(0, Qt.ItemDataRole.UserRole, path)
                 parent.setToolTip(0, path)
                 parent.setToolTip(1, str(value))
-            if general is not None:
-                general.setText(1, f"{general.childCount():,} fields")
+            def count_fields(item):
+                count = int(item.data(0, Qt.ItemDataRole.UserRole) is not None)
+                for index in range(item.childCount()):
+                    count += count_fields(item.child(index))
+                if item.childCount() and item.data(0, Qt.ItemDataRole.UserRole) is None:
+                    item.setText(1, f"{count:,} field{'s' if count != 1 else ''}")
+                return count
+
+            for index in range(self.topLevelItemCount()):
+                count_fields(self.topLevelItem(index))
             self.collapseAll()
         finally:
             self.setUpdatesEnabled(True)

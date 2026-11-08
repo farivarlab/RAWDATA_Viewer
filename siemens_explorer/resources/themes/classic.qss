@@ -25,7 +25,7 @@ QToolButton::right-arrow:disabled { image: url("%(arrow_right_disabled)s"); }
 QPushButton:default { outline: 1px solid %(focus)s; }
 QLineEdit, QComboBox, QAbstractSpinBox { background: %(base)s; color: %(text)s; padding: 3px; border-top: 2px solid %(shadow)s; border-left: 2px solid %(shadow)s; border-right: 2px solid %(shine)s; border-bottom: 2px solid %(shine)s; border-radius: 0; selection-background-color: %(selected)s; selection-color: %(selected_text)s; min-height: 18px; }
 QAbstractSpinBox { padding-right: 20px; }
-QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { subcontrol-origin: border; width: 18px; background: %(control)s; border-top: 1px solid %(shine)s; border-left: 1px solid %(shine)s; border-right: 1px solid %(deep)s; border-bottom: 1px solid %(deep)s; }
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { subcontrol-origin: padding; width: 18px; background: %(control)s; border-top: 1px solid %(shine)s; border-left: 1px solid %(shine)s; border-right: 1px solid %(deep)s; border-bottom: 1px solid %(deep)s; }
 QAbstractSpinBox::up-button { subcontrol-position: top right; }
 QAbstractSpinBox::down-button { subcontrol-position: bottom right; }
 QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover, QComboBox::drop-down:hover { background: %(hover)s; }
@@ -35,7 +35,7 @@ QAbstractSpinBox::down-arrow { image: url("%(arrow_down)s"); width: 7px; height:
 QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::up-arrow:off { image: url("%(arrow_up_disabled)s"); }
 QAbstractSpinBox::down-arrow:disabled, QAbstractSpinBox::down-arrow:off { image: url("%(arrow_down_disabled)s"); }
 QComboBox { padding-right: 22px; }
-QComboBox::drop-down { subcontrol-origin: border; subcontrol-position: top right; width: 18px; background: %(control)s; border-top: 1px solid %(shine)s; border-left: 1px solid %(shine)s; border-right: 1px solid %(deep)s; border-bottom: 1px solid %(deep)s; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 18px; background: %(control)s; border-top: 1px solid %(shine)s; border-left: 1px solid %(shine)s; border-right: 1px solid %(deep)s; border-bottom: 1px solid %(deep)s; }
 QComboBox::down-arrow { image: url("%(arrow_down)s"); width: 7px; height: 4px; }
 QComboBox::down-arrow:disabled { image: url("%(arrow_down_disabled)s"); }
 QComboBox QAbstractItemView { background: %(base)s; color: %(text)s; selection-background-color: %(selected)s; selection-color: %(selected_text)s; }

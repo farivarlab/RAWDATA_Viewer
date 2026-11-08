@@ -29,7 +29,9 @@ class BrandingTests(unittest.TestCase):
         apply_theme(_APP, "light")
 
     def test_application_logo_scales_without_missing_pixels(self):
-        icon = application_icon()
+        # The bundled reference stays fixed while the root SVG is user-editable.
+        with patch("siemens_explorer.qt_branding.LOGO_FILE", RESOURCE_DIRECTORY / "app-icon.svg"):
+            icon = application_icon()
         self.assertFalse(icon.isNull())
         for size in (16, 20, 24, 32, 48, 64, 128, 256):
             image = icon.pixmap(size, size).toImage()
@@ -45,7 +47,18 @@ class BrandingTests(unittest.TestCase):
             self.assertGreater(len(colors), 5)
 
     def test_windows_icon_contains_sharp_sizes_for_taskbar_and_high_dpi(self):
-        icon = QIcon(str(RESOURCE_DIRECTORY / "app.ico"))
+        from siemens_explorer import qt_branding
+        with patch.object(qt_branding, "LOGO_FILE", RESOURCE_DIRECTORY / "app-icon.svg"):
+            source = application_icon()
+        with tempfile.TemporaryDirectory() as directory:
+            resources = Path(directory) / "siemens_explorer" / "resources"
+            resources.mkdir(parents=True)
+            with patch.object(qt_branding, "RESOURCE_DIRECTORY", resources):
+                path = qt_branding.update_windows_icon(source)
+            icon = QIcon(str(path))
+            self._check_windows_icon(icon)
+
+    def _check_windows_icon(self, icon):
         expected = (16, 20, 24, 32, 40, 48, 64, 128, 256)
         self.assertEqual(sorted(size.width() for size in icon.availableSizes()), list(expected))
         for size in expected:

@@ -39,7 +39,11 @@ try {
     $shortcut.TargetPath = $guiPython
     $shortcut.Arguments = "-m siemens_explorer"
     $shortcut.WorkingDirectory = $PSScriptRoot
-    $shortcut.IconLocation = (Join-Path $PSScriptRoot "siemens_explorer\resources\app.ico") + ",0"
+    # The app switches this to a content-versioned ICO when the logo changes.
+    # Preserve that path here so bootstrap launches do not restore a stale icon.
+    if (-not $shortcut.IconLocation) {
+        $shortcut.IconLocation = (Join-Path $PSScriptRoot "siemens_explorer\resources\app.ico") + ",0"
+    }
     $shortcut.Description = "Open Raw MRI Data Explorer without a terminal"
     $shortcut.Save()
     $appArgs = @("-m", "siemens_explorer")

@@ -2,13 +2,16 @@
 
 from pathlib import Path
 from functools import lru_cache
+import hashlib
 import os
 import struct
 import tempfile
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, Qt
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSize, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
+
+from .windows_shortcut import refresh_project_shortcuts
 
 
 RESOURCE_DIRECTORY = Path(__file__).with_name("resources")
@@ -45,13 +48,14 @@ def application_icon() -> QIcon:
 
 
 def update_windows_icon(icon):
-    """Generate the shortcut/taskbar ICO from the same SVG, when writable."""
+    """Generate the ICO and give Windows shortcuts a fresh icon cache identity."""
     images = []
     for size in ICON_SIZES:
         data = QByteArray()
         buffer = QBuffer(data)
         buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-        icon.pixmap(size, size).toImage().save(buffer, "PNG")
+        # ICO entries describe physical pixels, independent of desktop scaling.
+        icon.pixmap(QSize(size, size), 1.0).toImage().save(buffer, "PNG")
         images.append(bytes(data))
     header = struct.pack("<HHH", 0, 1, len(images))
     offset = len(header) + 16 * len(images)
@@ -61,10 +65,30 @@ def update_windows_icon(icon):
         offset += len(data)
     data = header + b"".join(entries) + b"".join(images)
     path = RESOURCE_DIRECTORY / "app.ico"
+    try:
+        _write_icon(path, data)
+    except OSError:
+        return None
+    project_root = RESOURCE_DIRECTORY.parent.parent
+    if os.name == "nt" and any(project_root.glob("*.lnk")):
+        try:
+            # Explorer can retain the old image when app.ico is overwritten.
+            # Keep old versions so copies of the shortcut keep a valid icon.
+            cached = project_root / ".cache" / "icons" / f"app-{hashlib.sha256(data).hexdigest()[:20]}.ico"
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            _write_icon(cached, data)
+            path = cached
+        except OSError:
+            pass
+        refresh_project_shortcuts(project_root, path)
+    return path
+
+
+def _write_icon(path, data):
+    if path.is_file() and path.read_bytes() == data:
+        return
     temporary = None
     try:
-        if path.is_file() and path.read_bytes() == data:
-            return
         with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".ico.tmp", delete=False) as output:
             temporary = Path(output.name)
             output.write(data)
@@ -75,3 +99,4 @@ def update_windows_icon(icon):
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
+        raise

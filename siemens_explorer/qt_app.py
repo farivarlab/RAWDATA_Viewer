@@ -34,6 +34,7 @@ from .qt_glyphs import GLYPH_NAMES, clear_glyph_cache, glyph_icon
 from .qt_blocks import DataBlocksView
 from .qt_plots import PreviewView, SignalView
 from .qt_headers import HeaderTree
+from .qt_tabs import WorkspaceTabBar
 from .qt_theme import apply_theme, apply_theme_assets, load_theme, THEME_DIRECTORY, THEME_CHOICES, THEME_NAMES
 from .twix import TwixFile
 from .preferences import LAYOUT_VERSION, saved_theme
@@ -447,6 +448,7 @@ class MainWindow(QMainWindow):
         main.addWidget(self.notice)
         self.tabs = QTabWidget()
         self.tabs.setObjectName("workspaceTabs")
+        self.tabs.setTabBar(WorkspaceTabBar(self.tabs))
         self.tabs.setDocumentMode(True)
         self.tabs.tabBar().setDrawBase(False)
         self.tabs.currentChanged.connect(self._tab_changed)

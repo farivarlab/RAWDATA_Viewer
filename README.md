@@ -126,6 +126,8 @@ The palettes, fonts, control styles, captions, plot colors, and block-map colors
 
 Edit **[logo.svg](logo.svg)** in the project root to change the program's logo. **View â†’ Appearance â†’ Open logo folder** opens its location. Restart or use **Reload appearance assets** to update window/title-bar icons and subsequent dialogs/splash screens. The Windows ICO is regenerated from this SVG on launch/reload, and the same SVG supplies the About logo and measurement-tree icon. An installed package without a project-root SVG uses the bundled `resources/app-icon.svg`.
 
+Matching `.lnk` shortcuts in the project folder update automatically on launch/reload. Each logo version gets its own icon file in `.cache/icons` so Explorer does not reuse a stale image; Windows is notified about changed shortcuts.
+
 The compact title bar follows the selected theme. Drag it to move the window, double-click it to maximize or restore, and use the edges or corners to resize. Its window menu is available from the application icon or **Alt+Space**. Classic themes retain black title text and square buttons.
 
 ## Format support and limits

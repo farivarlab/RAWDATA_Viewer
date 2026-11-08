@@ -240,7 +240,7 @@ class DataBlocksTests(unittest.TestCase):
         self.widget.set_data(self.raw, self.measurement, self.scans[5:7])
         self.assertEqual(self.widget.scene.backgroundBrush().color().name(), "#161616")
         channel = self.blocks("channel")[0]
-        self.assertEqual(channel.brush().color().name(), "#2f2f2f")
+        self.assertEqual(channel.brush().color().name(), "#334c45")
         self.widget.clear()
         text = next(item for item in self.widget.scene.items() if hasattr(item, "text"))
         self.assertEqual(text.brush().color().name(), "#dcdcdc")

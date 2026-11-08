@@ -22,9 +22,16 @@ class HeaderTreeTests(unittest.TestCase):
     def test_array_paths_form_expandable_hierarchy_and_emit_original_path(self):
         root = self.tree.topLevelItem(0)
         self.assertEqual(root.text(0), "sSliceArray")
+        self.assertEqual(root.text(1), "2 fields")
+        self.assertEqual(root.child(0).text(1), "2 fields")
+        self.assertEqual(root.child(0).child(0).text(1), "1 field")
         leaf = root.child(0).child(0).child(0)
         self.assertEqual(leaf.text(0), "dThickness")
         self.assertEqual(leaf.text(1), "3.5")
+        general = self.tree.topLevelItem(2)
+        self.assertEqual(general.text(0), "General")
+        self.assertEqual(general.text(1), "1 field")
+        self.assertEqual(general.child(0).text(1), "HFS")
         selected = []
         self.tree.parameter_selected.connect(selected.append)
         self.tree.setCurrentItem(leaf)
@@ -41,6 +48,7 @@ class HeaderTreeTests(unittest.TestCase):
         self.tree.set_buffer('\n'.join(f'array[{i}] = {i}' for i in range(5000)))
         self.assertTrue(self.tree.limited)
         self.assertEqual(self.tree.topLevelItem(0).childCount(), self.tree.MAX_FIELDS)
+        self.assertEqual(self.tree.topLevelItem(0).text(1), "4,096 fields")
 
 
 if __name__ == "__main__":

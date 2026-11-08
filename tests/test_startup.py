@@ -71,10 +71,12 @@ class StartupTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows GUI launcher")
     def test_launcher_uses_pythonw_and_preserves_a_path_with_spaces(self):
         command = r'''
+        $script:RDX_IconBefore = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:RDX_PROJECT_ROOT 'Raw MRI Data Explorer.lnk')).IconLocation
         function Start-Process {
             [CmdletBinding()]
             param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle)
-            @{ executable=$FilePath; arguments=$ArgumentList; directory=$WorkingDirectory; style=$WindowStyle } |
+            $iconAfter = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:RDX_PROJECT_ROOT 'Raw MRI Data Explorer.lnk')).IconLocation
+            @{ executable=$FilePath; arguments=$ArgumentList; directory=$WorkingDirectory; style=$WindowStyle; iconBefore=$script:RDX_IconBefore; iconAfter=$iconAfter } |
                 ConvertTo-Json | Set-Content -LiteralPath $env:RDX_LAUNCH_CAPTURE -Encoding UTF8
         }
         $launchOptions = @{DataFile='C:\MRI data\measurement file.dat'}
@@ -92,6 +94,8 @@ class StartupTests(unittest.TestCase):
                 self.assertTrue(launch["executable"].endswith("pythonw.exe"))
                 self.assertEqual(Path(launch["directory"]), ROOT)
                 self.assertIn('"C:\\MRI data\\measurement file.dat"', launch["arguments"])
+                if launch["iconBefore"]:
+                    self.assertEqual(launch["iconAfter"], launch["iconBefore"])
                 if theme:
                     self.assertIn('"--theme" "dark"', launch["arguments"])
                 else:
