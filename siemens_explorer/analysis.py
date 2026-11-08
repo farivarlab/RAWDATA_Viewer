@@ -31,7 +31,14 @@ TABLE_COLUMNS = (
 
 @dataclass
 class Preview:
-    """Arrays for one Cartesian group, in Y/X or Z/Y/X order."""
+    """Display/export arrays in Y/X or Z/Y/X order, plus provenance metadata.
+
+    For Cartesian data, kspace is the selected coil's complex matrix, image is
+    magnitude after the requested transforms/combination, and coverage marks
+    acquired matrix positions. ``lines`` maps displayed rows to MDH counters.
+    Noise previews reuse this container with acquisition/sample axes instead;
+    their metadata sets display_kind='noise' so the UI can label them correctly.
+    """
 
     kspace: np.ndarray
     image: np.ndarray
@@ -265,6 +272,7 @@ def build_cartesian_preview(
     channels = list(range(channel_count)) if combine else [int(channel_index)]
 
     def read_coil(channel):
+        """Assemble one coil at a time so combination never needs a full coil stack."""
         kspace = np.zeros(shape, dtype=np.complex64)
         for scan, position in zip(selected, positions):
             signal = np.asarray(twix.read_signal(measurement, scan, channel), dtype=np.complex64)

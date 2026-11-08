@@ -476,6 +476,12 @@ class PreviewView(QWidget):
         return True
 
     def set_preview(self, preview: Any, preserve_view: bool = False, plane_index: int | None = None) -> None:
+        """Display a Y/X matrix or one plane from a Z/Y/X volume.
+
+        Shape-compatible updates retain zoom and histogram levels when requested.
+        Noise uses acquisition/sample labels; finite display copies leave the
+        original complex arrays available unchanged for numerical export.
+        """
         kspace, image = np.asarray(preview.kspace), np.asarray(preview.image)
         if kspace.ndim not in (2, 3) or image.ndim != kspace.ndim or kspace.shape != image.shape or not kspace.size:
             raise ValueError("A preview requires matching, non-empty 2D or 3D k-space and image arrays.")

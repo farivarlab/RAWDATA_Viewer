@@ -87,7 +87,14 @@ def table_view(model, name):
 
 
 class MainWindow(QMainWindow):
-    """A local, read-only viewer with one cancellable background job at a time."""
+    """Own dataset state and coordinate one cancellable worker at a time.
+
+    Widgets and model updates stay on the GUI thread. Workers receive snapshots
+    of the relevant selection and return results through queued signals. Preview
+    revision numbers reject stale results after rapid navigation. A new file is
+    adopted only after its initial index succeeds, preserving the current file
+    on errors. Passing settings=None keeps embedded/test windows stateless.
+    """
 
     def __init__(self, theme=None, *, settings=None):
         super().__init__()
@@ -118,7 +125,7 @@ class MainWindow(QMainWindow):
         self.source_name = ""
         self.busy = False
         self.last_error = ""
-        self._updating = False
+        self._updating = False  # Suppress recursive selection signals during synchronization.
         self._job = None
         self._job_kind = ""
         self._close_pending = False
@@ -819,6 +826,7 @@ class MainWindow(QMainWindow):
             self.notice.show()
 
     def _start_job(self, kind, function):
+        """Start a worker with queued UI delivery; return False if one is active."""
         if self.busy:
             return False
         self.busy = True
@@ -843,6 +851,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _job_success(self, result):
+        """Adopt a completed result on the GUI thread, ignoring obsolete previews."""
         if self._close_pending:
             if isinstance(result, dict) and "raw" in result:
                 result["raw"].close()
@@ -890,6 +899,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _job_finished(self):
+        """Release worker state before handling deferred close or the latest preview."""
         kind = self._job_kind
         self.busy = False
         self._job = None
@@ -931,6 +941,7 @@ class MainWindow(QMainWindow):
         return self._open_source(source.resolve())
 
     def _open_source(self, source):
+        """Index a candidate file before handing ownership to the current workspace."""
         maximum = self.index_limit.value()
 
         def work(cancel, progress):
@@ -998,6 +1009,7 @@ class MainWindow(QMainWindow):
         return self._start_job("index", work)
 
     def _adopt_index(self, result):
+        """Synchronize models/controls from one index while preserving valid filters."""
         self._preview_timer.stop()
         self._pending_preview = False
         self._automatic_preview = False
@@ -1249,6 +1261,7 @@ class MainWindow(QMainWindow):
             self.channel_selector.set_current_channel(ordinal)
 
     def current_scan(self):
+        """Resolve the selected parser ID, independently of the table's sort order."""
         index = self.scan_spin.value()
         if not self.twix or not 0 <= index < len(self.scans):
             raise ValueError("Select an indexed acquisition first.")
@@ -1274,6 +1287,7 @@ class MainWindow(QMainWindow):
         self._set_enabled()
 
     def invalidate_preview(self, *_, preserve_view=False):
+        """Mark older worker results stale and debounce a preview for the new selection."""
         self._preview_revision += 1
         self.preview = None
         automatic = self._automatic_preview or self.tabs.currentIndex() == 3
@@ -1309,6 +1323,7 @@ class MainWindow(QMainWindow):
         return [self.scans[int(i)] for i in self.frame.index[mask]]
 
     def build_preview(self, focus=True):
+        """Use a cached preview or queue bounded reads for a snapshot of this selection."""
         if self.busy or not self.twix or not self.filtered:
             return False
         self._automatic_preview = True
@@ -1411,6 +1426,7 @@ class MainWindow(QMainWindow):
                 tuple(name for name, check in self.ifft_checks.items() if check.isChecked()))
 
     def _remember_preview(self, key, preview):
+        """Maintain an eight-entry/32 MiB LRU without retaining oversized volumes."""
         def used(item):
             return sum(getattr(item, name).nbytes for name in ("kspace", "image", "coverage", "lines"))
         if key in self._preview_cache:
@@ -1433,6 +1449,7 @@ class MainWindow(QMainWindow):
         self._message("Noise readouts ready" if noise else "Cartesian preview ready")
 
     def _queue_preview(self):
+        """Coalesce rapid selection changes and cooperatively cancel the old preview."""
         if self._close_pending or not self.twix or not self.filtered:
             return
         if self.busy and self._job_kind != "preview":
@@ -1618,6 +1635,7 @@ class MainWindow(QMainWindow):
                 self._message(f"Export failed: {exc}", error=True)
 
     def export_ismrmrd(self, path):
+        """Export the full current index in a worker, independently of display filters."""
         if self.busy or not self.twix:
             raise ValueError("Wait for the current operation and open a measurement before exporting.")
         raw, measurement, scans = self.twix, self.measurement, list(self.scans)
@@ -1633,6 +1651,7 @@ class MainWindow(QMainWindow):
         return self._start_job("export_ismrmrd", work)
 
     def export_to(self, kind, path):
+        """Write a selected view synchronously, protecting the source and its hard links."""
         if self.busy:
             raise ValueError("Wait for the current operation before exporting.")
         if not self.twix:
@@ -1675,6 +1694,7 @@ class MainWindow(QMainWindow):
         return path
 
     def close_dataset(self):
+        """Release data and UI references only after outstanding reads have finished."""
         if self.busy:
             return False
         self._preview_timer.stop()
@@ -1752,6 +1772,7 @@ class MainWindow(QMainWindow):
         return True
 
     def reload_theme_assets(self):
+        """Reload editable styles/glyphs/logo while retaining the current data and views."""
         clear_glyph_cache()
         if self.set_theme(self.theme_name):
             icon = application_icon()
@@ -1812,6 +1833,7 @@ class MainWindow(QMainWindow):
                 break
 
     def closeEvent(self, event):
+        """Defer closing while a worker holds the file; save dock geometry before reset."""
         if self.busy:
             self._close_pending = True
             self.cancel_job()

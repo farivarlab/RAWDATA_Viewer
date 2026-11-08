@@ -9,6 +9,12 @@ from .twix import parse_protocol
 
 
 class HeaderTree(QTreeWidget):
+    """A bounded path tree; leaf metadata retains exact source parameter names.
+
+    Group summaries count descendant parameter leaves, rather than immediate
+    child groups. Original header text remains in the companion text view.
+    """
+
     parameter_selected = Signal(str)
     MAX_FIELDS = 4096
 
@@ -27,6 +33,7 @@ class HeaderTree(QTreeWidget):
         self.setToolTip("Expand stored ASCCONV paths and scalar header parameters. Select a value to locate it in the original buffer.")
 
     def set_buffer(self, text):
+        """Replace the tree with up to MAX_FIELDS parsed parameters and group counts."""
         self.setUpdatesEnabled(False)
         try:
             self.clear()
@@ -69,6 +76,7 @@ class HeaderTree(QTreeWidget):
             self.setUpdatesEnabled(True)
 
     def filter_parameters(self, query):
+        """Match names/values literally while retaining each matching leaf's ancestors."""
         query = str(query).strip().casefold()
 
         def visit(item):

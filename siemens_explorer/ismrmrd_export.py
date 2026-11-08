@@ -36,6 +36,7 @@ def _number(protocol, keys, default=0):
 
 
 def _xml_header(m, scans, physical_ids, complete, skipped):
+    """Describe inferred bounds and retained vendor facts without inventing geometry."""
     from ismrmrd import xsd
     p = m.protocol
     imaging = [s for s in scans if s.is_image] or scans
@@ -100,7 +101,18 @@ def _xml_header(m, scans, physical_ids, complete, skipped):
 
 def export_ismrmrd(twix, measurement, scans, path, *, index_complete=True, cancel=None, progress=None,
                    max_acquisition_bytes=64 * 1024 * 1024):
-    """Export bounded ADC blocks to /dataset, replacing the target only on success."""
+    """Stream the supplied index's ADCs to the ISMRMRD /dataset group.
+
+    Display filters, REFLECT correction, FFT settings, and channel combination
+    do not alter exported samples. Physical IDs map to consistent MRD channel
+    numbers; XML notes and original MDHs preserve the vendor-specific details.
+
+    cancel is a threading.Event; progress(fraction, count) may also return
+    False to abort with InterruptedError. Validation occurs before payload reads.
+    A same-directory temporary HDF5 file is closed before atomic replacement,
+    so failure/cancellation preserves any existing destination. Returns a dict
+    with path, exported acquisitions, and the number of skipped non-ADC records.
+    """
     import ismrmrd
     path = Path(path).expanduser().resolve()
     source = getattr(twix, "path", None)
@@ -140,6 +152,7 @@ def export_ismrmrd(twix, measurement, scans, path, *, index_complete=True, cance
     physical_ids = sorted(receivers)
     receiver_map = {value: index for index, value in enumerate(physical_ids)}
     xml = _xml_header(measurement, adc, physical_ids, index_complete, len(supplied) - len(adc))
+    # Siemens stores ADC dwell in ns; MRD sample_time_us expects microseconds.
     dwell = _number(measurement.protocol, ("sRXSPEC.alDwellTime[0]", "alDwellTime")) / 1000
     flag_names = {
         "NOISEADJSCAN": "ACQ_IS_NOISE_MEASUREMENT", "PHASCOR": "ACQ_IS_PHASECORR_DATA",
@@ -191,6 +204,8 @@ def export_ismrmrd(twix, measurement, scans, path, *, index_complete=True, cance
                 norm = np.linalg.norm(quaternion)
                 if np.isfinite(norm) and norm > 1e-8:
                     quaternion /= norm
+                    # Siemens stores WXYZ and exchanges read/phase relative to
+                    # MRD's XYZW direction helper (as in the official converter).
                     phase, read, normal = ismrmrd.quaternion_to_directions(quaternion[[1, 2, 3, 0]])
                     acq.read_dir[:], acq.phase_dir[:], acq.slice_dir[:] = read, phase, normal
                     acq.user_int[3] = 1

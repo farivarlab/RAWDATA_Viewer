@@ -36,7 +36,13 @@ def _notify_shortcut(path):
 
 
 def refresh_project_shortcuts(project_root, icon_path):
-    """Keep matching local .lnk files' launch options and replace only their icon."""
+    """Replace only the icon of matching project-folder .lnk files.
+
+    A hidden PowerShell process uses Windows' own shortcut API, preserving the
+    target, arguments and working directory. Per-item shell notifications avoid
+    resetting Explorer or clearing unrelated icon caches. Failures are optional
+    maintenance errors and never stop the viewer from launching.
+    """
     if os.name != "nt":
         return []
     project_root = Path(project_root).resolve()

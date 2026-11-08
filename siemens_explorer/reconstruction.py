@@ -14,6 +14,8 @@ import numpy as np
 
 @dataclass
 class NoiseCalibration:
+    """Receiver-aligned covariance and provenance, or None for assumed noise."""
+
     covariance: np.ndarray | None = None
     metadata: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
@@ -30,6 +32,7 @@ def centered_ifft(values, axes):
 
 
 def calibration_grid(shape):
+    """Cap coarse response maps at 32 samples per axis, or 16 along volume Z."""
     return tuple(min(size, 16 if len(shape) == 3 and axis == 0 else 32)
                  for axis, size in enumerate(shape))
 
@@ -103,6 +106,9 @@ def estimate_noise_covariance(twix, measurement, scans, receiver_ids, *, max_sam
 
     One acquisition is retained at a time. A complex sample is an observation;
     the pooled channel mean is removed before forming the unbiased covariance.
+    The returned covariance follows receiver_ids, regardless of stored ordinal
+    order. Insufficient samples return an explicit assumed-noise calibration;
+    malformed or non-finite samples raise ValueError instead of biasing weights.
     """
     receiver_ids = tuple(receiver_ids)
     channels = len(receiver_ids)

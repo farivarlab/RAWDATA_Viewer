@@ -4,7 +4,7 @@ A native desktop program built with **Python, Qt (PySide6), NumPy, and pyqtgraph
 
 ## Run
 
-The development environment in this workspace is prepared. Double-click **`Raw MRI Data Explorer.lnk`** or **`start.vbs`** to open the viewer without a terminal. A small startup splash appears while the imaging components load. `start.cmd` also forwards to this windowless launcher.
+On Windows, install **64-bit Python 3.10 or newer**, clone or download this repository, and double-click **`start.vbs`**. The launcher creates a local `.venv`, installs dependencies on the first run, and creates **`Raw MRI Data Explorer.lnk`** for later launches. A small startup splash appears while the imaging components load. `start.cmd` also forwards to this windowless launcher.
 
 From PowerShell:
 
@@ -41,14 +41,14 @@ The Windows launcher creates `.venv` and installs missing dependencies when nece
 - Hover over a slider and use the wheel to change the selection without clicking first. Wheel down advances and wheel up goes back, one position per notch; small trackpad motions accumulate into steps.
 - Select a receive channel with the **Channel** slider or numeric entry in **Data selection**. Its tooltip shows the channel count and physical receiver ID.
 - Slider endpoints show the minimum and maximum values observed in the selected measurement/data type; the numeric field shows the current selection. Counter sliders retain their extra **All** position.
-- The scrollable **Data selection** panel contains Data type, Channel, all acquisition-counter sliders, and index settings. The dimension controls follow Siemens Twix array order: Channel, Partition, Slice, Average, Phase, Echo, Repetition, Set, Segment, and IDaâ€“IDe, consistent with [mapVBVD's raw-data order](https://github.com/pehses/mapVBVD#order-of-raw-data).
-- **Data selection** and **Dataset explorer** can each be moved, detached into a window, resized, or closed. Drag a panel's title bar to move it; double-click to detach or dock it. **View â†’ Data selection / Dataset explorer** restores a closed panel. Both use the selected theme when floating.
+- The scrollable **Data selection** panel contains Data type, Channel, all acquisition-counter sliders, and index settings. The dimension controls follow Siemens Twix array order: Channel, Partition, Slice, Average, Phase, Echo, Repetition, Set, Segment, and IDa–IDe, consistent with [mapVBVD's raw-data order](https://github.com/pehses/mapVBVD#order-of-raw-data).
+- **Data selection** and **Dataset explorer** can each be moved, detached into a window, resized, or closed. Drag a panel's title bar to move it; double-click to detach or dock it. **View > Data selection / Dataset explorer** restores a closed panel. Both use the selected theme when floating.
 - Drag the divider between the two docked panels to resize Measurements and Data selection independently.
 - Header indexing and preview construction run in the background. The status bar shows activity and allows cancellation. The default index limit is **250,000 acquisitions**; a partial index is labeled explicitly, and the limit can be raised before re-indexing.
 - **Re-index measurement** and **Index limit** are at the bottom of **Data selection**. Re-indexing rescans the selected measurement's acquisition headers, preserving the data type, channel, and compatible counter selections; sample data is left on disk until viewed. **F5** also re-indexes.
 - Switch between **Overview**, **Acquisitions**, **Signal**, **K-space & image**, **Protocol**, **Raw headers**, and **Data blocks**.
 - Previews refresh automatically. Native menus and the toolbar provide file opening, appearance, indexing, and export actions.
-- **View â†’ Preview notes** shows the preview qualifications, hidden by default. Drag the divider above the notes to resize them. Routine controls explain themselves through tooltips.
+- **View > Preview notes** shows the preview qualifications, hidden by default. Drag the divider above the notes to resize them. Routine controls explain themselves through tooltips.
 
 | View | Purpose |
 | --- | --- |
@@ -116,15 +116,15 @@ Raw-header navigation preserves the original text. The expandable tree groups st
 | Esc | Cancel the current background operation |
 | F11 | Toggle full screen |
 
-Drag inside plots to pan. Scroll over images to navigate slices; use Ctrl+scroll to zoom. Signal plots retain scroll-to-zoom. Image histograms control window/level; **Auto levels** and **Fit images** restore useful display defaults. Appearance can be changed through **View â†’ Appearance**. The first launch is maximized; later launches restore the previous window geometry and mode. `--windowed` opens a normal window.
+Drag inside plots to pan. Scroll over images to navigate slices; use Ctrl+scroll to zoom. Signal plots retain scroll-to-zoom. Image histograms control window/level; **Auto levels** and **Fit images** restore useful display defaults. Appearance can be changed through **View > Appearance**. The first launch is maximized; later launches restore the previous window geometry and mode. `--windowed` opens a normal window.
 
-Choose **Modern dark** or **Modern light** through **View â†’ Appearance**. The palette covers the workspace, startup splash, floating panels, dialogs, captions, glyphs, and plot controls. Modern dark is the default and retains the `cockpit` theme identifier. To start in modern light, use `--theme modern-light` or `.\start.ps1 -Theme modern-light`. **Classic light / Classic dark** retain the 90s controls and the `light` / `dark` launch options.
+Choose **Modern dark** or **Modern light** through **View > Appearance**. The palette covers the workspace, startup splash, floating panels, dialogs, captions, glyphs, and plot controls. Modern dark is the default and retains the `cockpit` theme identifier. To start in modern light, use `--theme modern-light` or `.\start.ps1 -Theme modern-light`. **Classic light / Classic dark** retain the 90s controls and the `light` / `dark` launch options.
 
 Closing the app saves its theme and dock layout in your per-user Qt settings, including panel positions, sizes, detached windows, and hidden panels. The next launch uses that theme for the splash as well as the workspace. **View** restores panels you previously closed. An explicit `--theme` / `-Theme` overrides the remembered theme; normal shortcuts and launchers use the saved choice. Floating panels saved on a disconnected monitor are moved back onto an available screen. Raw-data files are not stored in these preferences.
 
-The palettes, fonts, control styles, captions, plot colors, and block-map colors are editable in `siemens_explorer/resources/themes/`. Original SVG control glyphs are in `resources/glyphs/`. Use **View â†’ Appearance â†’ Open theme assets folder**, edit the assets, then **Reload appearance assets** (**Ctrl+Shift+R**) to apply them without reopening data. Invalid theme edits retain the current appearance. See [the asset guide](siemens_explorer/resources/ASSETS.md) for file names and tokens.
+The palettes, fonts, control styles, captions, plot colors, and block-map colors are editable in `siemens_explorer/resources/themes/`. Original SVG control glyphs are in `resources/glyphs/`. Use **View > Appearance > Open theme assets folder**, edit the assets, then **Reload appearance assets** (**Ctrl+Shift+R**) to apply them without reopening data. Invalid theme edits retain the current appearance. See [the asset guide](siemens_explorer/resources/ASSETS.md) for file names and tokens.
 
-Edit **[logo.svg](logo.svg)** in the project root to change the program's logo. **View â†’ Appearance â†’ Open logo folder** opens its location. Restart or use **Reload appearance assets** to update window/title-bar icons and subsequent dialogs/splash screens. The Windows ICO is regenerated from this SVG on launch/reload, and the same SVG supplies the About logo and measurement-tree icon. An installed package without a project-root SVG uses the bundled `resources/app-icon.svg`.
+Edit **[logo.svg](logo.svg)** in the project root to change the program's logo. **View > Appearance > Open logo folder** opens its location. Restart or use **Reload appearance assets** to update window/title-bar icons and subsequent dialogs/splash screens. The Windows ICO is regenerated from this SVG on launch/reload, and the same SVG supplies the About logo and measurement-tree icon. An installed package without a project-root SVG uses the bundled `resources/app-icon.svg`.
 
 Matching `.lnk` shortcuts in the project folder update automatically on launch/reload. Each logo version gets its own icon file in `.cache/icons` so Explorer does not reuse a stale image; Windows is notified about changed shortcuts.
 
@@ -140,7 +140,7 @@ The Cartesian image is an **inspection preview**, not a scanner reconstruction. 
 
 Displayed matrix bounds are inferred from observed MDH counters. Preview coverage describes the allocated matrix and cannot establish the prescribed matrix, full sampling, or acceleration. Trajectory is not validated. Regridding, ramp-sampling correction, parallel imaging, SMS reconstruction, oversampling removal, noise prewhitening, sensitivity correction, and scanner image orientation are not applied. Non-Cartesian or sequence-specific data require an appropriate reconstruction before interpreting an image. The preview is limited to 2,048 pixels per axis and a conservative 128 MiB estimated working-memory budget.
 
-No real scanner dataset was supplied during development. Verification uses synthetic VB/VD fixtures, malformed/truncated inputs, numerical checks, and Qt integration tests. Compatibility with representative scanner files remains to be checked. This is research and inspection software.
+Automated verification uses generated VB/VD fixtures, malformed/truncated inputs, numerical checks, and Qt integration tests. Manual checks also used a 108-channel Siemens VD/VE file, including individual channels, layout inspection, noise data, and an ISMRMRD round trip. This is limited compatibility evidence, not validation of every scanner or sequence. No scanner files are included in this repository. This is research and inspection software.
 
 ## Python API
 
@@ -164,13 +164,15 @@ with TwixFile("measurement.dat") as raw:
 ## Tests
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe tools/run_tests.py
 ```
 
-Tests cover binary layout variants, multiple measurements, payloads and physical channel IDs, evaluation flags, truncated input, index limits, protocol extraction, FFT recovery, reflection, duplicate averaging, missing lines, mixed groups, allocation guards, and desktop controls/exports.
+The runner executes each test module in a separate process to isolate Qt application state. Tests cover binary layout variants, multiple measurements, payloads and physical channel IDs, evaluation flags, truncated input, index limits, protocol extraction, FFT recovery, reflection, duplicate averaging, missing lines, mixed groups, allocation guards, and desktop controls/exports. GitHub Actions runs the suite on Windows with Python 3.12 and 3.13 and builds the Python distributions.
 
-## Local Git history
+## Development and license
 
-The project is tracked in a local Git repository on `main`. Source, logo assets, documentation, and tests belong in the repository; virtual environments, generated caches, exports, and raw `.dat` files are excluded by `.gitignore`. Use `git status` and `git log --oneline` to inspect local changes and history. A remote hosting destination is a separate configuration.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, and contribution guidelines, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code map and data contracts. Source, appearance assets, documentation, and tests belong in Git; virtual environments, caches, generated shortcuts, exports, and raw-data files are excluded. Test fixtures are generated locally rather than stored scanner datasets.
+
+Released under the [MIT License](LICENSE). Third-party dependencies retain their own licenses.
 
 The independent binary reader follows layout definitions documented by [twixtools MDH schemas](https://github.com/pehses/twixtools/blob/master/twixtools/mdh_def.py) and [mapVBVD](https://github.com/pehses/mapVBVD/blob/main/mapVBVD.m). The desktop interface uses [Qt for Python](https://doc.qt.io/qtforpython-6/) and [pyqtgraph](https://www.pyqtgraph.org/).

@@ -30,6 +30,13 @@ class TwixError(ValueError):
 
 @dataclass(slots=True)
 class Measurement:
+    """One RAID entry and its protocol buffers, without acquisition payloads.
+
+    Offsets are absolute file byte positions; lengths are byte counts. Protocol
+    values retain scanner units. The zero-based index is distinct from the
+    scanner-assigned measurement ID, which need not be contiguous.
+    """
+
     index: int
     id: int
     offset: int
@@ -47,6 +54,13 @@ class Measurement:
 
 @dataclass(frozen=True, slots=True)
 class Scan:
+    """Immutable MDH facts for one acquisition, identified by its parser index.
+
+    Loop counters are zero-based scanner values. ``timestamp_ms`` converts
+    Siemens' 2.5 ms ticks; ``eval_mask`` preserves all original flag bits.
+    ``channels`` counts ordinal positions, not the physical receiver IDs.
+    """
+
     index: int
     offset: int
     length: int
@@ -81,6 +95,12 @@ class Scan:
 
 @dataclass(slots=True)
 class ScanIndex:
+    """Valid acquisition prefix plus completion status and recovery warnings.
+
+    Reaching an index limit or cancellation returns usable scans with
+    ``complete=False``. Completion requires a valid ACQEND marker.
+    """
+
     scans: list[Scan]
     complete: bool
     bytes_scanned: int
@@ -198,6 +218,7 @@ class TwixFile:
                 self._closed = True
 
     def _read(self, offset: int, length: int, *, end: int | None = None) -> bytes:
+        """Check byte bounds and serialize seek/read operations on the file handle."""
         limit = self.size if end is None else min(end, self.size)
         if offset < 0 or length < 0 or offset + length > limit:
             raise TwixError(f"Truncated data: need {length:,} bytes at offset {offset:,} (end {limit:,}).")
@@ -211,6 +232,7 @@ class TwixFile:
         return data
 
     def _raid_entries(self, count: int) -> tuple[list[tuple], str] | None:
+        """Validate a VD/VE directory candidate before accepting it over VB."""
         if not 1 <= count <= 64 or 8 + count * 152 > self.size:
             return None
         entries, tail_warning = [], ""
@@ -242,6 +264,7 @@ class TwixFile:
         return entries, tail_warning
 
     def _inspect(self) -> tuple[str, list[Measurement]]:
+        """Read the measurement directory and bounded text headers, never ADCs."""
         if self.size < 8:
             raise TwixError("Not a Siemens Twix file: the file is shorter than its header.")
         first, second = struct.unpack("<II", self._read(0, 8))
@@ -322,11 +345,18 @@ class TwixFile:
 
     def index_measurement(self, measurement: Measurement | int, max_scans: int = 1_000_000,
                           progress: Callable[[float, int], object] | None = None) -> ScanIndex:
-        """Index scan headers; report incomplete/truncated files without losing a valid prefix."""
+        """Index MDHs without loading sample arrays, retaining a valid prefix.
+
+        ``progress(fraction, scan_count)`` may return False to stop indexing.
+        Limits, cancellation, and truncated tails produce a partial ScanIndex
+        with warnings; malformed measurement-directory inputs raise TwixError.
+        The supplied Measurement must belong to this open TwixFile.
+        """
         measurement = self._measurement(measurement)
         if max_scans < 1:
             raise ValueError("max_scans must be positive")
         vd = measurement.format != "VB"
+        # VD inserts 20 bytes ahead of fields shared with the older VB MDH.
         mdh_len, extra = (192, 20) if vd else (128, 0)
         pos, end = measurement.data_offset, measurement.offset + measurement.length
         scans, warnings, complete = [], list(measurement.warnings), False
@@ -395,6 +425,7 @@ class TwixFile:
         return ScanIndex(scans, complete, max(0, min(pos, end) - measurement.data_offset), warnings)
 
     def _channel_location(self, measurement: Measurement, scan: Scan, channel_index: int) -> tuple[int, int]:
+        """Return the payload byte offset and physical ID for an ordinal channel."""
         if not isinstance(channel_index, (int, np.integer)) or not 0 <= channel_index < scan.channels:
             raise TwixError(f"Channel index must be between 0 and {scan.channels - 1}.")
         if not scan.samples or "SYNCDATA" in scan.flags:
@@ -427,11 +458,18 @@ class TwixFile:
                           end=measurement.offset + measurement.length)
 
     def channel_ids(self, measurement: Measurement | int, scan: Scan) -> list[int]:
+        """Read physical receiver IDs in stored order without decoding samples."""
         measurement = self._measurement(measurement)
         return [self._channel_location(measurement, scan, c)[1] for c in range(scan.channels)]
 
     def read_signal(self, measurement: Measurement | int, scan: Scan, channel_index: int = 0) -> np.ndarray:
-        """Return complex64 samples in acquisition order (REFLECT is not corrected)."""
+        """Return an owned 1D complex64 array for one stored channel ordinal.
+
+        On-disk samples are little-endian interleaved float32 real/imaginary
+        pairs. REFLECT, cutoff counts, scaling, and FFTs are left unapplied;
+        preview transformations belong to analysis.py, not this binary reader.
+        Invalid bounds or channel headers raise TwixError before decoding.
+        """
         measurement = self._measurement(measurement)
         offset, _ = self._channel_location(measurement, scan, channel_index)
         raw = self._read(offset, scan.samples * 8, end=scan.offset + scan.length)
