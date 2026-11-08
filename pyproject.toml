@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raw-mri-data-explorer"
+version = "0.2.0"
+description = "A native Qt desktop explorer for Siemens MRI Twix raw data"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["MRI", "Siemens", "Twix", "raw-data", "Qt"]
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.1,<4",
+  "PySide6-Essentials>=6.12,<7",
+  "pyqtgraph>=0.14,<0.15",
+  "ismrmrd>=1.15,<2",
+]
+
+[project.gui-scripts]
+raw-mri-data-explorer = "siemens_explorer.__main__:main"
+siemens-explorer = "siemens_explorer.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/farivarlab/RawDataViewer"
+Issues = "https://github.com/farivarlab/RawDataViewer/issues"
+
+[tool.setuptools.packages.find]
+include = ["siemens_explorer*"]
+
+[tool.setuptools.package-data]
+siemens_explorer = ["resources/*.svg", "resources/*.ico", "resources/*.md", "resources/glyphs/*.svg", "resources/themes/*.json", "resources/themes/*.qss"]

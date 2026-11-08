@@ -1,0 +1,9 @@
+QWidget#classicTitleBar { background: %(caption_active)s; border-bottom: 1px solid %(caption_border)s; }
+QWidget#classicTitleBar[windowActive="false"] { background: %(caption_inactive)s; }
+QLabel#classicWindowTitle { background: transparent; color: %(caption_text)s; font-weight: bold; border: none; }
+QToolButton[captionButton="true"] { background: transparent; border: none; padding: 0; border-radius: 0; }
+QToolButton[captionButton="true"]:hover { background: %(caption_hover)s; }
+QToolButton[captionButton="true"]:pressed { background: %(caption_pressed)s; }
+QToolButton#closeWindowButton:hover { background: %(caption_close_hover)s; }
+QToolButton#closeWindowButton:pressed { background: %(caption_close_hover)s; }
+QToolButton#windowSystemIcon { background: transparent; border: none; padding: 0; }
