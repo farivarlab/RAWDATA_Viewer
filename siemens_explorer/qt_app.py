@@ -1816,7 +1816,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("About Raw MRI Data Explorer")
         dialog.setIconPixmap(application_icon().pixmap(48, 48))
         dialog.setTextFormat(Qt.TextFormat.PlainText)
-        dialog.setText(f"Raw MRI Data Explorer {__version__}\n\nTarget: Siemens Twix RAWDATA (.dat), VB and VD/VE.\nNative Python / Qt viewer for read-only inspection, individual receive channels, and Cartesian quick looks.\n\nSequence-specific reconstruction and scanner image orientation are not applied.")
+        dialog.setText(f"Raw MRI Data Explorer {__version__}\n\nNot For Diagnostic Use\n\nTarget: Siemens Twix RAWDATA (.dat), VB and VD/VE.\nNative Python / Qt viewer for read-only inspection, individual receive channels, and Cartesian quick looks.\n\nSequence-specific reconstruction and scanner image orientation are not applied.")
         dialog.exec()
 
     def dragEnterEvent(self, event):

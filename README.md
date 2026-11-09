@@ -2,6 +2,27 @@
 
 A native desktop program built with **Python, Qt (PySide6), NumPy, and pyqtgraph**. Its target is **Siemens MRI Twix RAWDATA (`.dat`)**, including VB and VD/VE files. It is not a general-purpose reader for every vendor's raw MRI format. The default **Modern dark** theme uses compact charcoal panels, restrained teal accents, and thin dock outlines. **Modern light** provides the same layout in soft whites and grays. Classic 90s light and dark themes are also available. Files are opened read-only and processed on this computer.
 
+## Screenshots
+
+**K-space and image — Modern dark.** Cartesian inspection preview with independent inverse FFT controls and RSS combination across 108 receive channels.
+
+![Modern dark workspace showing k-space, the RSS phantom image, and channel and acquisition-counter controls](docs/screenshots/kspace-image-dark.png)
+
+<details>
+<summary>More views: measurement overview and physical file layout</summary>
+
+**Measurement overview — Modern light.** Measurement properties, index coverage, and observed imaging dimensions alongside the dataset and selection panels.
+
+![Modern light workspace showing measurement properties, a complete acquisition index, and observed imaging dimensions](docs/screenshots/overview-light.png)
+
+**Data blocks — physical file layout.** Inspect measurement boundaries, protocol headers, and channel payloads using indexed metadata.
+
+![Modern dark Data blocks view showing the physical file layout, measurement boundaries, and acquisition channel blocks](docs/screenshots/data-blocks-dark.png)
+
+</details>
+
+Captured from a Siemens phantom test file. Local paths and identifying fields are omitted; the displayed filename is `phantom.dat`. The source scanner file is not included.
+
 ## Run
 
 On Windows, install **64-bit Python 3.10 or newer**, clone or download this repository, and double-click **`start.vbs`**. The launcher creates a local `.venv`, installs dependencies on the first run, and creates **`Raw MRI Data Explorer.lnk`** for later launches. A small startup splash appears while the imaging components load. `start.cmd` also forwards to this windowless launcher.

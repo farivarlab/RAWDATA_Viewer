@@ -1,6 +1,6 @@
 include README.md CONTRIBUTING.md LICENSE logo.svg requirements.txt
 include app.py start.cmd start.ps1 start.vbs
-recursive-include docs *.md
+recursive-include docs *.md *.png
 recursive-include tests *.py
 recursive-include tools *.py
 recursive-include siemens_explorer/resources *.svg *.ico *.json *.qss *.md

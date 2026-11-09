@@ -30,12 +30,13 @@ def create_splash(app, theme="cockpit"):
     painter.setFont(QFont(assets.font_family, assets.font_size))
     painter.setPen(QColor(colors["muted"]))
     painter.drawText(76, 64, "Loading…")
+    painter.drawText(76, 86, "Not For Diagnostic Use")
     painter.fillRect(20, 103, 320, 3, QColor(colors["base"]))
     painter.fillRect(20, 103, 72, 3, QColor(colors["accent"]))
     painter.end()
     splash = QSplashScreen(image, Qt.WindowType.WindowStaysOnTopHint)
     splash.setObjectName("startupSplash")
-    splash.setAccessibleName("Starting Raw MRI Data Explorer")
+    splash.setAccessibleName("Starting Raw MRI Data Explorer. Not For Diagnostic Use")
     splash.setWindowIcon(application_icon())
     return splash
 
