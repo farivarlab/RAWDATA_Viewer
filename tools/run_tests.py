@@ -26,7 +26,7 @@ def run_module(path: Path, timeout: float) -> dict:
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         result = subprocess.run(
-            [sys.executable, "-u", "-m", "unittest", "discover", "-s", "tests", "-p", path.name],
+            [sys.executable, "-u", "-m", "unittest", "discover", "-s", "tests", "-p", path.name, "-v"],
             cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=timeout,
         )
@@ -34,9 +34,13 @@ def run_module(path: Path, timeout: float) -> dict:
         count = re.search(r"Ran (\d+) tests?", output)
         return {"module": path.name, "passed": result.returncode == 0 and count is not None,
                 "tests": int(count[1]) if count else 0, "output": output if result.returncode or not count else ""}
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as error:
+        # TimeoutExpired may contain bytes even with text=True. Keep the last
+        # test name and any traceback so CI hangs can be diagnosed.
+        chunks = [chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else chunk or ""
+                  for chunk in (error.stdout, error.stderr)]
         return {"module": path.name, "passed": False, "tests": 0,
-                "output": f"Module exceeded its {timeout:g}-second timeout."}
+                "output": f"Module exceeded its {timeout:g}-second timeout.\n" + "".join(chunks)}
 
 
 def main(argv=None) -> int:

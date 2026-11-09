@@ -136,7 +136,8 @@ class ClassicDialogTests(unittest.TestCase):
                     dialog.accept()
                 with self.modal_action(QFileDialog, accept, "Select file"):
                     selected, selected_filter = helper(None, "Select file", str(path), name_filter)
-                self.assertEqual(Path(selected), path)
+                # Qt expands Windows 8.3 aliases, including CI's RUNNER~1.
+                self.assertEqual(Path(selected).resolve(), path.resolve())
                 self.assertEqual(selected_filter, name_filter)
             self.assertFalse(destination.exists())
 

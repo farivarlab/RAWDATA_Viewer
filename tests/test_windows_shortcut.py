@@ -22,7 +22,8 @@ class ShortcutIconTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "viewer's café project"
+        # Shortcut refresh uses canonical paths, including expanded 8.3 aliases.
+        self.root = (Path(self.temporary.name) / "viewer's café project").resolve()
         self.resources = self.root / "siemens_explorer" / "resources"
         self.resources.mkdir(parents=True)
         self.logo = self.root / "logo.svg"

@@ -24,7 +24,8 @@ APP = QApplication.instance() or QApplication([])
 class ThemeAssetTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="editable-theme-")
-        self.folder = Path(self.temp.name) / "themes"
+        # Theme loading resolves paths; Windows temp paths may use 8.3 aliases.
+        self.folder = (Path(self.temp.name) / "themes").resolve()
         shutil.copytree(THEME_DIRECTORY, self.folder)
         self.path = self.folder / "cockpit.json"
         self.document = json.loads(self.path.read_text(encoding="utf-8"))
