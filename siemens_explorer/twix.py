@@ -133,6 +133,17 @@ _MAX_BUFFERS = 4096
 _DMA_MASK = (1 << 25) - 1
 
 
+def _vd_channel_length(value: int) -> int:
+    """Decode a VD/VE channel header's ``ulTypeAndChannelLength`` in bytes.
+
+    Siemens packs the header type (0x02) into bits 0-7 and the channel length
+    (header + samples) into bits 8-31. Some writers store a plain byte count
+    instead; channel lengths are multiples of 8, so a plain count never has a
+    low byte of 0x02 and the two encodings cannot be confused.
+    """
+    return value >> 8 if value & 0xFF == 0x02 else value & _DMA_MASK
+
+
 @lru_cache(maxsize=512)
 def _flags(mask: int) -> tuple[str, ...]:
     return tuple(_FLAGS.get(bit, f"BIT_{bit}") for bit in range(64) if mask & (1 << bit))
@@ -193,6 +204,8 @@ class TwixFile:
         self._lock = threading.RLock()
         self._closed = False
         if isinstance(source, (bytes, bytearray, memoryview)):
+            # len() of a typed memoryview counts elements, not bytes.
+            source = bytes(source) if isinstance(source, memoryview) else source
             self._file = io.BytesIO(source)
             self.size = len(source)
         else:
@@ -368,6 +381,8 @@ class TwixFile:
             try:
                 header = self._read(pos, mdh_len, end=end)
             except TwixError as exc:
+                if self._closed:
+                    raise  # A closed handle is a lifecycle error, not a truncated file.
                 warnings.append(str(exc))
                 break
             declared = struct.unpack_from("<I", header)[0] & _DMA_MASK
@@ -439,7 +454,7 @@ class TwixFile:
         header = self._read(channel_offset, channel_header_len, end=min(end, scan.offset + scan.length))
         channel_id = struct.unpack_from("<H", header, 24 if vd else 124)[0]
         if vd:
-            declared = struct.unpack_from("<I", header)[0] & _DMA_MASK
+            declared = _vd_channel_length(struct.unpack_from("<I", header)[0])
             # Some scanner versions omit this field; a nonzero short length is corrupt.
             if declared and declared < 32 + scan.samples * 8:
                 raise TwixError(f"Channel {channel_index} payload is shorter than its sample count.")
@@ -549,7 +564,8 @@ def create_demo_file(path: str | os.PathLike) -> Path:
             out.write(header)
             for c in range(ncoil):
                 ch = bytearray(32)
-                struct.pack_into("<III", ch, 0, 32 + nx * 8, 1, acq)
+                # Type 0x02 in bits 0-7, channel length in bytes in bits 8-31.
+                struct.pack_into("<III", ch, 0, ((32 + nx * 8) << 8) | 0x02, 1, acq)
                 struct.pack_into("<H", ch, 24, c)
                 out.write(ch)
                 # Slice 1 is translated and echo 1 attenuated, exercising filter controls.

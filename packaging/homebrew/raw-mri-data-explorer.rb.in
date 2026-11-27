@@ -1,0 +1,37 @@
+# Homebrew formula template. The release workflow fills in @VERSION@ and
+# @SDIST_SHA256@ and attaches the finished raw-mri-data-explorer.rb to the
+# GitHub release; copy it into Formula/ of the farivarlab/homebrew-tap repo.
+#
+#   brew install farivarlab/tap/raw-mri-data-explorer
+#
+# PySide6, NumPy, pandas and h5py are installed from their PyPI binary wheels
+# into a private virtualenv, so the formula belongs in a tap rather than
+# homebrew-core (which requires every dependency to be built from source).
+class RawMriDataExplorer < Formula
+  desc "Native Qt desktop explorer for Siemens MRI Twix raw data"
+  homepage "https://github.com/farivarlab/RAWDATA_Viewer"
+  url "https://github.com/farivarlab/RAWDATA_Viewer/releases/download/v@VERSION@/raw_mri_data_explorer-@VERSION@.tar.gz"
+  sha256 "@SDIST_SHA256@"
+  license "MIT"
+
+  depends_on "python@3.12"
+
+  def install
+    python = Formula["python@3.12"].opt_bin/"python3.12"
+    system python, "-m", "venv", libexec
+    system libexec/"bin/python", "-m", "pip", "install", "--no-cache-dir", "--disable-pip-version-check", buildpath
+    bin.install_symlink libexec/"bin/raw-mri-data-explorer"
+  end
+
+  def caveats
+    <<~EOS
+      Launch the viewer from a terminal:
+        raw-mri-data-explorer [path/to/meas.dat]
+    EOS
+  end
+
+  test do
+    system libexec/"bin/python", "-c", "import siemens_explorer.twix, siemens_explorer.reconstruction"
+    assert_match "Siemens", shell_output("#{bin}/raw-mri-data-explorer --help")
+  end
+end

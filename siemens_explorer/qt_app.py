@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PySide6.QtCore import QByteArray, QRect, Qt, QThreadPool, QTimer, Slot, QSize, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence, QFont, QTextCursor
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QFontDatabase, QKeySequence, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox,
     QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
@@ -129,6 +129,8 @@ class MainWindow(QMainWindow):
         self._job = None
         self._job_kind = ""
         self._close_pending = False
+        self._discard_dataset_after_job = False
+        self._z_available = False
         self._slice_values = []
         self._blocks_dirty = True
         self._navigation_change = False
@@ -634,7 +636,9 @@ class MainWindow(QMainWindow):
         self.raw_text.setAccessibleName("Original raw header text")
         self.raw_text.setReadOnly(True)
         self.raw_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.raw_text.setFont(QFont("Consolas", 10))
+        fixed = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        fixed.setPointSize(10)
+        self.raw_text.setFont(fixed)
         self.header_tree = HeaderTree()
         self.header_tree.parameter_selected.connect(self._jump_header_parameter)
         self.header_search.textChanged.connect(self.header_tree.filter_parameters)
@@ -784,8 +788,7 @@ class MainWindow(QMainWindow):
         self.preview_view.set_slice_navigation_enabled(multiple)
         self.scan_spin.setEnabled(bool(self.scans) and idle)
         imaging = self.kind.currentText() != "Noise"
-        z_available = bool(self.scans) and (len({s.partition for s in self.scans if s.is_image}) > 1
-                                          or any(s.is_image and s.center_partition > 0 for s in self.scans))
+        z_available = self._z_available
         if not z_available and self.ifft_checks["z"].isChecked():
             self.ifft_checks["z"].blockSignals(True)
             self.ifft_checks["z"].setChecked(False)
@@ -840,6 +843,8 @@ class MainWindow(QMainWindow):
         self._job.signals.progress.connect(self._job_progress, Qt.ConnectionType.QueuedConnection)
         self._job.signals.finished.connect(self._job_finished, Qt.ConnectionType.QueuedConnection)
         self._set_enabled()
+        # A previous cancel disables the button; every new job is cancellable.
+        self.cancel_button.setEnabled(True)
         self.pool.start(self._job)
         return True
 
@@ -877,18 +882,27 @@ class MainWindow(QMainWindow):
                     self._message("No noise readouts found within the current index limit.")
             elif self._job_kind == "preview":
                 if self._active_preview_revision != self._preview_revision or self._job.cancel.is_set():
+                    if self._job.cancel.is_set() and not self._pending_preview:
+                        self._message("Preview cancelled.")
                     return
                 self._display_preview(result)
                 self._remember_preview(self._active_preview_key, result)
             elif self._job_kind == "export_ismrmrd":
                 self._message(f"Exported {result['path'].name} · {result['acquisitions']:,} ADC acquisitions · {result['skipped']:,} non-ADC records skipped")
         except Exception as exc:
-            self._message(f"Unable to display result: {exc}", error=True)
+            if self._job_kind in {"open", "index", "find_noise"}:
+                # Adoption stopped partway: the file handle, measurement and
+                # scans may now disagree. Close rather than read wrong offsets.
+                self._discard_dataset_after_job = True
+                self._message(f"Unable to display result: {exc}. The dataset was closed.", error=True)
+            else:
+                self._message(f"Unable to display result: {exc}", error=True)
 
     @Slot(str)
     def _job_error(self, text):
-        if self._job_kind == "preview" and self._pending_preview:
-            return  # A newer slice superseded this operation.
+        if self._job_kind == "preview" and (self._pending_preview or self._active_preview_revision != self._preview_revision):
+            # A newer selection superseded this operation and set its own message.
+            return
         if self._job and self._job.cancel.is_set():
             self._message("Operation cancelled. The current dataset is unchanged.")
         else:
@@ -905,6 +919,9 @@ class MainWindow(QMainWindow):
         self._job = None
         self._job_kind = ""
         self._set_enabled()
+        if self._discard_dataset_after_job:
+            self._discard_dataset_after_job = False
+            self.close_dataset()
         if self._close_pending:
             QTimer.singleShot(0, self.close)
         elif self._pending_preview:
@@ -953,6 +970,10 @@ class MainWindow(QMainWindow):
                 if cancel.is_set():
                     raise InterruptedError("Cancelled")
                 index = raw.index_measurement(measurement, max_scans=maximum, progress=progress)
+                if cancel.is_set():
+                    # Indexing returns a valid prefix when cancelled; an open
+                    # must not replace the current dataset with it.
+                    raise InterruptedError("Cancelled")
                 frame = scans_to_frame(index.scans)
                 return {"raw": raw, "measurement": measurement, "index": index, "frame": frame}
             except Exception:
@@ -965,22 +986,24 @@ class MainWindow(QMainWindow):
 
     def _populate_measurements(self, current):
         self._updating = True
-        self.measurement_tree.clear()
-        root = QTreeWidgetItem([self.source_name])
-        root.setIcon(0, application_icon())
-        self.measurement_tree.addTopLevelItem(root)
-        selected = None
-        for measurement in self.twix.measurements:
-            item = QTreeWidgetItem([f"{measurement.index + 1:02d}  {measurement.protocol_name or 'Measurement'}  · ID {measurement.id}"])
-            item.setData(0, Qt.ItemDataRole.UserRole, measurement.index)
-            item.setToolTip(0, f"Offset {measurement.offset:,} bytes\nLength {size_label(measurement.length)}")
-            root.addChild(item)
-            if measurement.index == current.index:
-                selected = item
-        root.setExpanded(True)
-        if selected:
-            self.measurement_tree.setCurrentItem(selected)
-        self._updating = False
+        try:
+            self.measurement_tree.clear()
+            root = QTreeWidgetItem([self.source_name])
+            root.setIcon(0, application_icon())
+            self.measurement_tree.addTopLevelItem(root)
+            selected = None
+            for measurement in self.twix.measurements:
+                item = QTreeWidgetItem([f"{measurement.index + 1:02d}  {measurement.protocol_name or 'Measurement'}  · ID {measurement.id}"])
+                item.setData(0, Qt.ItemDataRole.UserRole, measurement.index)
+                item.setToolTip(0, f"Offset {measurement.offset:,} bytes\nLength {size_label(measurement.length)}")
+                root.addChild(item)
+                if measurement.index == current.index:
+                    selected = item
+            root.setExpanded(True)
+            if selected:
+                self.measurement_tree.setCurrentItem(selected)
+        finally:
+            self._updating = False
 
     def _measurement_changed(self, item, previous):
         if self._updating or self.busy or not item or not self.twix:
@@ -1017,50 +1040,54 @@ class MainWindow(QMainWindow):
         self._noise_cache.clear()
         self._preview_cache_bytes = 0
         self._updating = True
-        self.measurement = result["measurement"]
-        self.scan_index = result["index"]
-        self.scans = self.scan_index.scans
-        self.frame = result["frame"]
-        self.acq_search.clear()
-        self.protocol_search.clear()
-        self.header_search.clear()
-        self.kind.setCurrentText(result.get("data_type", "Image" if any(s.is_image for s in self.scans) else "Noise" if any("NOISEADJSCAN" in s.flags for s in self.scans) else "All"))
-        self._populate_counter_choices()
-        for name, value in result.get("counter_values", {}).items():
-            combo = self.counter_widgets[name]
-            position = combo.findData(value)
-            if position >= 0:
-                combo.setCurrentIndex(position)
-        for tree_index in range(self.measurement_tree.topLevelItemCount()):
-            root = self.measurement_tree.topLevelItem(tree_index)
-            for child_index in range(root.childCount()):
-                item = root.child(child_index)
-                if item.data(0, Qt.ItemDataRole.UserRole) == self.measurement.index:
-                    noise_count = sum("NOISEADJSCAN" in s.flags for s in self.scans)
-                    suffix = f" · {noise_count:,} noise" if noise_count else ""
-                    item.setText(0, f"{self.measurement.index + 1:02d}  {self.measurement.protocol_name or 'Measurement'}  · ID {self.measurement.id}{suffix}")
-                    self.measurement_tree.setCurrentItem(item)
-        imaging = [s for s in self.scans if s.is_image] or self.scans
-        use_partition = len({s.slice for s in imaging}) <= 1 and len({s.partition for s in imaging}) > 1
-        self.slice_axis.setCurrentIndex(self.slice_axis.findData("partition" if use_partition else "slice"))
-        self.channel.clear()
-        for i in range(max((s.channels for s in self.scans), default=1)):
-            self.channel.addItem(str(i), i)
-        if not self.channel.count():
-            self.channel.addItem("0", 0)
-        selected_channel = self.channel.findData(result.get("channel", 0))
-        self.channel.setCurrentIndex(max(0, selected_channel))
-        self.scan_spin.setRange(0, max(0, len(self.scans) - 1))
-        self.raw_buffer.clear()
-        self.raw_buffer.addItems(list(self.measurement.buffers))
-        for preferred in ("MeasYaps", "Phoenix", "Meas"):
-            index = self.raw_buffer.findText(preferred)
-            if index >= 0:
-                self.raw_buffer.setCurrentIndex(index)
-                break
-        protocol = pd.DataFrame([{"Parameter": str(k), "Value": str(v)} for k, v in sorted(self.measurement.protocol.items())], columns=["Parameter", "Value"])
-        self.protocol_model.set_frame(protocol)
-        self._updating = False
+        try:
+            self.measurement = result["measurement"]
+            self.scan_index = result["index"]
+            self.scans = self.scan_index.scans
+            self.frame = result["frame"]
+            self.acq_search.clear()
+            self.protocol_search.clear()
+            self.header_search.clear()
+            self.kind.setCurrentText(result.get("data_type", "Image" if any(s.is_image for s in self.scans) else "Noise" if any("NOISEADJSCAN" in s.flags for s in self.scans) else "All"))
+            self._populate_counter_choices()
+            for name, value in result.get("counter_values", {}).items():
+                combo = self.counter_widgets[name]
+                position = combo.findData(value)
+                if position >= 0:
+                    combo.setCurrentIndex(position)
+            for tree_index in range(self.measurement_tree.topLevelItemCount()):
+                root = self.measurement_tree.topLevelItem(tree_index)
+                for child_index in range(root.childCount()):
+                    item = root.child(child_index)
+                    if item.data(0, Qt.ItemDataRole.UserRole) == self.measurement.index:
+                        noise_count = sum("NOISEADJSCAN" in s.flags for s in self.scans)
+                        suffix = f" · {noise_count:,} noise" if noise_count else ""
+                        item.setText(0, f"{self.measurement.index + 1:02d}  {self.measurement.protocol_name or 'Measurement'}  · ID {self.measurement.id}{suffix}")
+                        self.measurement_tree.setCurrentItem(item)
+            self._z_available = bool(self.scans) and (len({s.partition for s in self.scans if s.is_image}) > 1
+                                                    or any(s.is_image and s.center_partition > 0 for s in self.scans))
+            imaging = [s for s in self.scans if s.is_image] or self.scans
+            use_partition = len({s.slice for s in imaging}) <= 1 and len({s.partition for s in imaging}) > 1
+            self.slice_axis.setCurrentIndex(self.slice_axis.findData("partition" if use_partition else "slice"))
+            self.channel.clear()
+            for i in range(max((s.channels for s in self.scans), default=1)):
+                self.channel.addItem(str(i), i)
+            if not self.channel.count():
+                self.channel.addItem("0", 0)
+            selected_channel = self.channel.findData(result.get("channel", 0))
+            self.channel.setCurrentIndex(max(0, selected_channel))
+            self.scan_spin.setRange(0, max(0, len(self.scans) - 1))
+            self.raw_buffer.clear()
+            self.raw_buffer.addItems(list(self.measurement.buffers))
+            for preferred in ("MeasYaps", "Phoenix", "Meas"):
+                index = self.raw_buffer.findText(preferred)
+                if index >= 0:
+                    self.raw_buffer.setCurrentIndex(index)
+                    break
+            protocol = pd.DataFrame([{"Parameter": str(k), "Value": str(v)} for k, v in sorted(self.measurement.protocol.items())], columns=["Parameter", "Value"])
+            self.protocol_model.set_frame(protocol)
+        finally:
+            self._updating = False
         self._filters_changed()
         self._buffer_changed()
         self._update_overview()
@@ -1083,6 +1110,15 @@ class MainWindow(QMainWindow):
         if kind in patterns:
             return self.frame["flags"].str.contains(patterns[kind], regex=True, na=False)
         return pd.Series(True, index=self.frame.index, dtype=bool)
+
+    def _selection_mask(self, exclude=None):
+        """Rows matching the data type and every chosen counter except ``exclude``."""
+        mask = self._type_mask().copy()
+        for name, combo in self.counter_widgets.items():
+            value = combo.currentData()
+            if name != exclude and value is not None:
+                mask &= self.frame[name] == value
+        return mask
 
     def _populate_counter_choices(self):
         source = [self.scans[int(i)] for i in self.frame.index[self._type_mask()]] if self.scans else []
@@ -1159,13 +1195,7 @@ class MainWindow(QMainWindow):
             if not self.scans:
                 view = self.frame.iloc[:0]
             else:
-                mask = pd.Series(True, index=self.frame.index)
-                for name, combo in self.counter_widgets.items():
-                    value = combo.currentData()
-                    if value is not None:
-                        mask &= self.frame[name] == value
-                mask &= self._type_mask()
-                view = self.frame[mask]
+                view = self.frame[self._selection_mask()]
             self.filtered = [self.scans[int(i)] for i in view.index]
             self.acq_model.set_frame(view)
             if self.filtered:
@@ -1316,10 +1346,7 @@ class MainWindow(QMainWindow):
             return list(self.filtered)
         # The acquisition table keeps its raw-partition filter; a Z transform
         # needs the entire partition encoding for this one slice/counter group.
-        mask = self._type_mask().copy()
-        for name, control in self.counter_widgets.items():
-            if name != "partition" and control.currentData() is not None:
-                mask &= self.frame[name] == control.currentData()
+        mask = self._selection_mask(exclude="partition")
         return [self.scans[int(i)] for i in self.frame.index[mask]]
 
     def build_preview(self, focus=True):
@@ -1514,12 +1541,7 @@ class MainWindow(QMainWindow):
         axis = self.slice_axis.currentData() or "slice"
         values = []
         if self.scans:
-            mask = pd.Series(True, index=self.frame.index)
-            for name, combo in self.counter_widgets.items():
-                value = combo.currentData()
-                if name != axis and value is not None:
-                    mask &= self.frame[name] == value
-            mask &= self._type_mask()
+            mask = self._selection_mask(exclude=axis)
             values = sorted(int(v) for v in self.frame.loc[mask, axis].unique())
         self._slice_values = values
         self.slice_minimum.setText(str(values[0]) if values else "—")
@@ -1709,6 +1731,7 @@ class MainWindow(QMainWindow):
             self.twix.close()
         self.twix = self.measurement = self.scan_index = self.preview = None
         self.scans, self.filtered = [], []
+        self._z_available = False
         self.frame = pd.DataFrame()
         self.source_name = ""
         self._updating = True

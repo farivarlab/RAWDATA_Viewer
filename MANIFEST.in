@@ -3,6 +3,7 @@ include app.py start.cmd start.ps1 start.vbs
 recursive-include docs *.md *.png
 recursive-include tests *.py
 recursive-include tools *.py
+recursive-include packaging *.md *.spec *.in
 recursive-include siemens_explorer/resources *.svg *.ico *.json *.qss *.md
 global-exclude *.py[cod]
 prune .cache

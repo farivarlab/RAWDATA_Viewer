@@ -1,0 +1,144 @@
+name: Release
+
+# Push a tag matching the package version (e.g. v0.2.0) to publish a release.
+# The release gets the sdist/wheel, a standalone Windows zip, and the filled-in
+# Homebrew formula and Scoop manifest to copy into the tap and bucket repos.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build, e.g. v0.2.0
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Check tag matches package version
+        id: version
+        shell: bash
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          module=$(python -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('siemens_explorer/__init__.py').read())[1])")
+          if [ "v$version" != "$tag" ] || [ "$version" != "$module" ]; then
+            echo "::error::tag $tag, pyproject $version and __version__ $module must agree"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: python -m pip install build
+      - run: python -m build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist
+          path: dist/*
+
+  windows-bundle:
+    needs: dist
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build standalone app
+        shell: pwsh
+        run: |
+          python -m pip install . pyinstaller
+          python -m PyInstaller packaging/pyinstaller/raw-mri-data-explorer.spec --noconfirm
+      - name: Smoke-test the bundle
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $exe = "dist/Raw MRI Data Explorer/Raw MRI Data Explorer.exe"
+          $p = Start-Process -FilePath $exe -ArgumentList '--windowed' -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "Bundle exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id
+      - name: Zip bundle
+        shell: pwsh
+        run: |
+          $zip = "RawMRIDataExplorer-${{ needs.dist.outputs.version }}-windows-x64.zip"
+          Compress-Archive -Path "dist/Raw MRI Data Explorer" -DestinationPath $zip
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows
+          path: RawMRIDataExplorer-*-windows-x64.zip
+
+  homebrew-check:
+    # Install the formula from the freshly built sdist to catch breakage
+    # before the release is published.
+    needs: dist
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist
+      - name: Install formula from local sdist
+        env:
+          VERSION: ${{ needs.dist.outputs.version }}
+        run: |
+          sdist="$PWD/dist/raw_mri_data_explorer-$VERSION.tar.gz"
+          sum=$(shasum -a 256 "$sdist" | cut -d' ' -f1)
+          brew tap-new --no-git local/test
+          formula="$(brew --repository local/test)/Formula/raw-mri-data-explorer.rb"
+          sed -e "s|@VERSION@|$VERSION|g" -e "s|@SDIST_SHA256@|$sum|g" \
+              -e "s|^  url .*|  url \"file://$sdist\"|" \
+              packaging/homebrew/raw-mri-data-explorer.rb.in > "$formula"
+          brew install --formula local/test/raw-mri-data-explorer
+          brew test local/test/raw-mri-data-explorer
+
+  release:
+    needs: [dist, windows-bundle, homebrew-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Render Homebrew formula and Scoop manifest
+        env:
+          VERSION: ${{ needs.dist.outputs.version }}
+        run: |
+          python3 tools/render_package_manifests.py --version "$VERSION" \
+            --sdist "artifacts/raw_mri_data_explorer-$VERSION.tar.gz" \
+            --windows-zip "artifacts/RawMRIDataExplorer-$VERSION-windows-x64.zip" \
+            --out artifacts
+          (cd artifacts && sha256sum * > SHA256SUMS.txt)
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" artifacts/* --title "$TAG" --generate-notes --draft
+          fi

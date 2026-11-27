@@ -377,19 +377,27 @@ class NativeExplorerTests(unittest.TestCase):
                 time.sleep(0.002)
             return original(raw, measurement, progress=progress, **kwargs)
 
+        previous = ui.twix
         with patch.object(TwixFile, "index_measurement", slow_index):
             ui.open_path(self.demo)
             self.wait_for(started.is_set)
             self.assertTrue(ui.busy)
             ui.cancel_job()
+            self.assertFalse(ui.cancel_button.isEnabled())
             self.wait_idle()
         self.assertFalse(ui.busy)
         self.assertEqual(ui.pool.activeThreadCount(), 0)
-        # A cancelled replacement may retain the previous dataset or its valid
-        # indexed prefix; either result must have a coherent signal state.
-        self.assertIn(len(ui.scans), (1, 260))
+        # A cancelled open keeps the previous dataset rather than adopting the
+        # partial prefix of the new file.
+        self.assertIs(ui.twix, previous)
+        self.assertEqual(len(ui.scans), 260)
         if ui.signal_view.signal is not None:
             self.assertIn(ui.signal_view.scan, ui.scans)
+        # The next job must be cancellable from the button again, whichever
+        # entry point starts it.
+        ui._start_job("find_noise", lambda cancel, progress: None)
+        self.assertTrue(ui.cancel_button.isEnabled())
+        self.wait_idle()
 
     def test_close_during_job_defers_until_worker_finishes_and_closes_both_handles(self):
         ui = self.window

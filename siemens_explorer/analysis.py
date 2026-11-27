@@ -92,6 +92,14 @@ def select_scans(scans: Iterable[Any], filters: Mapping[str, Any] | None = None)
     return [scan for scan in scans if matches(scan)]
 
 
+def checked_channel_ids(twix: Any, measurement: Any, scan: Any) -> tuple[int, ...]:
+    """Return one acquisition's physical receiver IDs, rejecting missing, negative or duplicate IDs."""
+    ids = tuple(int(value) for value in twix.channel_ids(measurement, scan))
+    if len(ids) != int(scan.channels) or len(set(ids)) != len(ids) or min(ids, default=0) < 0:
+        raise ValueError(f"Acquisition {scan.index} has invalid or duplicate receiver channel IDs.")
+    return ids
+
+
 def build_cartesian_preview(
     twix: Any,
     measurement: Any,
@@ -220,9 +228,7 @@ def build_cartesian_preview(
     channel_id_reader = getattr(twix, "channel_ids", None)
     if callable(channel_id_reader):
         for scan in selected:
-            ids = tuple(int(value) for value in channel_id_reader(measurement, scan))
-            if len(ids) != scan.channels or len(set(ids)) != len(ids):
-                raise ValueError(f"Acquisition {scan.index} has invalid or duplicate receiver channel IDs.")
+            ids = checked_channel_ids(twix, measurement, scan)
             if receiver_ids is None:
                 receiver_ids = ids
             elif ids != receiver_ids:

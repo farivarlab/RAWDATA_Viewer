@@ -40,7 +40,7 @@ To check packaging:
 .\.venv\Scripts\python.exe -m build
 ```
 
-Build outputs belong in ignored `dist/` and `build/` directories. The source
+Build outputs belong in ignored `dist/` and `build/` directories. Release builds (PyInstaller bundle, Homebrew formula, Scoop manifest) are described in [packaging/README.md](packaging/README.md). The source
 distribution includes launch scripts, tests, and documentation; the wheel
 includes the importable package, appearance resources, entry points, and license.
 

@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from .analysis import Preview
+from .analysis import Preview, checked_channel_ids
 
 
 def build_noise_preview(
@@ -66,9 +66,7 @@ def build_noise_preview(
     channel_id_reader = getattr(twix, "channel_ids", None)
     if callable(channel_id_reader):
         for scan in selected:
-            ids = tuple(int(value) for value in channel_id_reader(measurement, scan))
-            if len(ids) != int(scan.channels) or len(set(ids)) != len(ids) or any(value < 0 for value in ids):
-                raise ValueError(f"Acquisition {scan.index} has invalid or duplicate receiver channel IDs.")
+            ids = checked_channel_ids(twix, measurement, scan)
             current_id = ids[channel_index]
             if not identity_verified:
                 physical_id, identity_verified = current_id, True

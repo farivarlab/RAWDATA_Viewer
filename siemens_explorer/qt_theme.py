@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 
 
 RESOURCE_DIRECTORY = Path(__file__).with_name("resources")
@@ -172,6 +172,7 @@ def apply_theme_assets(app, assets):
         palette.setColor(role, QColor(colors[key]))
     for role in (QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText):
         palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(colors["disabled"]))
+    _substitute_missing_family(assets.font_family)
     font = QFont(assets.font_family, assets.font_size)
     app.setProperty("explorerTheme", assets.name)
     app.setProperty("explorerThemeColors", dict(colors))
@@ -182,6 +183,19 @@ def apply_theme_assets(app, assets):
         scheme = Qt.ColorScheme.Light if QColor(colors["window"]).lightness() >= 128 else Qt.ColorScheme.Dark
         app.styleHints().setColorScheme(scheme)
     return assets
+
+
+def _substitute_missing_family(family):
+    """Map a theme font absent on this platform (e.g. Segoe UI on macOS) to the system UI font.
+
+    The substitution is global, so the splash, block map, and every other
+    ``QFont(family)`` built from the theme resolve the same way.
+    """
+    if QFontDatabase.hasFamily(family):
+        return
+    fallback = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont).family()
+    if fallback and fallback != family and fallback not in QFont.substitutes(family):
+        QFont.insertSubstitution(family, fallback)
 
 
 # Compatibility snapshots for callers that only need the bundled initial colors.

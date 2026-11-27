@@ -1,0 +1,35 @@
+{
+    "version": "@VERSION@",
+    "description": "Native Qt desktop explorer for Siemens MRI Twix raw data",
+    "homepage": "https://github.com/farivarlab/RAWDATA_Viewer",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/farivarlab/RAWDATA_Viewer/releases/download/v@VERSION@/RawMRIDataExplorer-@VERSION@-windows-x64.zip",
+            "hash": "@WINDOWS_SHA256@"
+        }
+    },
+    "extract_dir": "Raw MRI Data Explorer",
+    "bin": [
+        [
+            "Raw MRI Data Explorer.exe",
+            "raw-mri-data-explorer"
+        ]
+    ],
+    "shortcuts": [
+        [
+            "Raw MRI Data Explorer.exe",
+            "Raw MRI Data Explorer"
+        ]
+    ],
+    "checkver": {
+        "github": "https://github.com/farivarlab/RAWDATA_Viewer"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/farivarlab/RAWDATA_Viewer/releases/download/v$version/RawMRIDataExplorer-$version-windows-x64.zip"
+            }
+        }
+    }
+}

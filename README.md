@@ -23,6 +23,24 @@ A native desktop program built with **Python, Qt (PySide6), NumPy, and pyqtgraph
 
 Captured from a Siemens phantom test file. Local paths and identifying fields are omitted; the displayed filename is `phantom.dat`. The source scanner file is not included.
 
+## Install
+
+Once a release is published:
+
+```sh
+# macOS (Homebrew)
+brew install farivarlab/tap/raw-mri-data-explorer
+raw-mri-data-explorer
+```
+
+```powershell
+# Windows (Scoop): standalone build, no Python required
+scoop bucket add farivarlab https://github.com/farivarlab/scoop-bucket
+scoop install farivarlab/raw-mri-data-explorer
+```
+
+A standalone Windows zip, the wheel, and the sdist are also attached to each [GitHub release](https://github.com/farivarlab/RAWDATA_Viewer/releases). Maintainers: see [packaging/README.md](packaging/README.md) for the release process.
+
 ## Run
 
 On Windows, install **64-bit Python 3.10 or newer**, clone or download this repository, and double-click **`start.vbs`**. The launcher creates a local `.venv`, installs dependencies on the first run, and creates **`Raw MRI Data Explorer.lnk`** for later launches. A small startup splash appears while the imaging components load. `start.cmd` also forwards to this windowless launcher.

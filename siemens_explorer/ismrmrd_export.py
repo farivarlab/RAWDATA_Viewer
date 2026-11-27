@@ -17,6 +17,8 @@ import tempfile
 
 import numpy as np
 
+from .analysis import checked_channel_ids
+
 
 COUNTER_MAP = {"line": "kspace_encode_step_1", "partition": "kspace_encode_step_2",
                "average": "average", "slice": "slice", "echo": "contrast", "phase": "phase",
@@ -143,9 +145,7 @@ def export_ismrmrd(twix, measurement, scans, path, *, index_complete=True, cance
             raise ValueError("One acquisition exceeds the ISMRMRD export working-memory limit.")
         if not 0 <= scan.center_column < scan.samples or scan.cutoff_pre + scan.cutoff_post > scan.samples:
             raise ValueError("Invalid center sample or ADC discard counts.")
-        ids = tuple(twix.channel_ids(measurement, scan))
-        if len(ids) != scan.channels or len(set(ids)) != len(ids):
-            raise ValueError("Invalid physical receiver IDs in an acquisition.")
+        ids = checked_channel_ids(twix, measurement, scan)
         receivers.update(ids)
         if len(receivers) > 1024:
             raise ValueError("ISMRMRD supports at most 1,024 distinct receiver channels.")
@@ -222,11 +222,33 @@ def export_ismrmrd(twix, measurement, scans, path, *, index_complete=True, cance
                     acq.setChannelActive(receiver_map[ids[channel]])
                 dataset.append_acquisition(acq)
                 dataset.append_array("siemens_mdh", np.frombuffer(mdh, dtype="<u2"))
-        finally:
-            dataset.close()
+        except BaseException:
+            # Report the original failure even if closing the partial file fails.
+            try:
+                dataset.close()
+            except Exception:
+                pass
+            raise
+        dataset.close()
         checkpoint(1.0, len(adc))
+        _apply_default_mode(temporary, path)
         os.replace(temporary, path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     return {"path": path, "acquisitions": len(adc), "skipped": len(supplied) - len(adc)}
+
+
+def _apply_default_mode(temporary, destination):
+    """Temporary files start as 0600; keep a replaced file's mode or use 0644.
+
+    Reading the umask would mean briefly changing process-wide state while
+    other threads may be creating files, so a conventional default is used.
+    """
+    if os.name == "nt":
+        return
+    try:
+        mode = destination.stat().st_mode & 0o7777
+    except OSError:
+        mode = 0o644
+    os.chmod(temporary, mode)

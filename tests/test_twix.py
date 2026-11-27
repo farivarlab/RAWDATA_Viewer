@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from siemens_explorer.twix import TwixError, TwixFile, create_demo_file, parse_protocol
+from siemens_explorer.twix import TwixError, TwixFile, _vd_channel_length, create_demo_file, parse_protocol
 
 
 def protocol_header(length=1024, text='tProtocolName = "Test GRE"\nalTE[0] = 4500\n'):
@@ -254,6 +254,25 @@ class BinaryReaderTests(unittest.TestCase):
                 self.assertEqual(a.size, 128)
                 np.testing.assert_allclose(b, a * 0.74, rtol=1e-6, atol=1e-6)
                 self.assertEqual(file.measurements[0].metadata["tr_us"], 12000)
+
+
+class ChannelHeaderLengthTests(unittest.TestCase):
+    def test_packed_type_and_length_decodes_long_readouts(self):
+        # 16,388 samples exceed the 17 bits a 25-bit mask leaves after the type byte.
+        for samples in (128, 16_384, 16_388, 65_535):
+            length = 32 + samples * 8
+            self.assertEqual(_vd_channel_length((length << 8) | 0x02), length)
+
+    def test_plain_byte_count_is_still_accepted(self):
+        self.assertEqual(_vd_channel_length(32 + 128 * 8), 32 + 128 * 8)
+        self.assertEqual(_vd_channel_length(0), 0)
+
+    def test_typed_memoryview_size_is_counted_in_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = create_demo_file(Path(directory) / "demo.dat").read_bytes()
+        words = memoryview(data).cast("B")[: len(data) // 4 * 4].cast("I")
+        with TwixFile(words) as raw:
+            self.assertEqual(raw.size, len(data) // 4 * 4)
 
 
 if __name__ == "__main__":

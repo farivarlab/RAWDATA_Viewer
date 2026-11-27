@@ -70,9 +70,9 @@ def report_startup_error(error, log_directory=None):
             from .qt_theme import apply_theme
             apply_theme(app, "cockpit")
         QMessageBox.critical(None, "Raw MRI Data Explorer — startup error", message)
-    except (ImportError, ValueError, OSError, RuntimeError) as dialog_error:
-        # ThemeAssetError inherits ValueError. This path must work even when a
-        # corrupt theme prevents importing qt_theme or constructing its dialog.
+    except Exception as dialog_error:
+        # Last-resort path: it must work even when a corrupt theme prevents
+        # importing qt_theme or constructing its dialog, whatever the error type.
         extra = f"\n\nThe themed error dialog could not be displayed:\n{dialog_error}"
         if log_path:
             try:
