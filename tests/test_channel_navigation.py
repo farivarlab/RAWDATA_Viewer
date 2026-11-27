@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGroupBox, QListWidget, QStyle, QStyleOptionSlider
 
@@ -65,11 +65,11 @@ class ChannelNavigationTests(unittest.TestCase):
     def wait_for(self, condition, timeout=12):
         deadline = time.monotonic() + timeout
         while not condition():
-            self.app.processEvents()
+            self.app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
             time.sleep(0.003)
             if time.monotonic() > deadline:
                 self.fail("Channel operation did not finish in time")
-        self.app.processEvents()
+        self.app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
 
     def wait_settled(self):
         ui = self.window

@@ -11,6 +11,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from PySide6.QtCore import QEventLoop
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
@@ -39,7 +40,7 @@ def main():
         def pending():
             return window.busy or window._pending_preview or window._preview_timer.isActive() or window.pool.activeThreadCount() > 0
         while pending() and time.monotonic() < deadline:
-            app.processEvents()
+            app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
             time.sleep(0.01)
         if pending():
             raise RuntimeError("Qt operation timed out")

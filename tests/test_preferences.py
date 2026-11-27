@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from PySide6.QtCore import QByteArray, QEvent, QSettings, Qt
+from PySide6.QtCore import QEventLoop, QByteArray, QEvent, QSettings, Qt
 from PySide6.QtWidgets import QApplication
 
 from siemens_explorer.preferences import LAYOUT_VERSION, saved_theme
@@ -52,11 +52,11 @@ class PreferenceTests(unittest.TestCase):
     def wait_for(self, condition):
         deadline = time.monotonic() + 10
         while not condition():
-            APP.processEvents()
+            APP.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
             time.sleep(0.002)
             if time.monotonic() > deadline:
                 self.fail("Preference close did not finish")
-        APP.processEvents()
+        APP.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
 
     def test_theme_saved_at_close_and_explicit_theme_override(self):
         first = self.window()
