@@ -25,7 +25,9 @@ Captured from a Siemens phantom test file. Local paths and identifying fields ar
 
 ## Install
 
-Once a release is published:
+**Windows:** download `RawMRIDataExplorer-<version>-windows-x64-setup.exe` from the [latest release](https://github.com/farivarlab/RAWDATA_Viewer/releases/latest) and run it. It installs for the current user without administrator rights (an all-users install is offered), adds a Start-menu shortcut, and can add the viewer to the **Open with** menu for `.dat` files. No Python installation is needed. The build is not code-signed yet, so SmartScreen may ask you to confirm (**More info → Run anyway**).
+
+Package managers, once the tap and bucket are published:
 
 ```sh
 # macOS (Homebrew)
@@ -39,7 +41,7 @@ scoop bucket add farivarlab https://github.com/farivarlab/scoop-bucket
 scoop install farivarlab/raw-mri-data-explorer
 ```
 
-A standalone Windows zip, the wheel, and the sdist are also attached to each [GitHub release](https://github.com/farivarlab/RAWDATA_Viewer/releases). Maintainers: see [packaging/README.md](packaging/README.md) for the release process.
+A portable Windows zip, the wheel, and the sdist are also attached to each [GitHub release](https://github.com/farivarlab/RAWDATA_Viewer/releases). Maintainers: see [packaging/README.md](packaging/README.md) for the release process.
 
 ## Run
 

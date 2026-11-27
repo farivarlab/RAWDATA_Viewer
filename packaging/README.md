@@ -2,6 +2,7 @@
 
 | Platform | Channel | Source artifact |
 | --- | --- | --- |
+| Windows | Installer (Inno Setup) | `RawMRIDataExplorer-<version>-windows-x64-setup.exe` |
 | macOS (and Linux) | Homebrew tap `farivarlab/tap` | `raw_mri_data_explorer-<version>.tar.gz` (sdist) |
 | Windows | Scoop bucket `farivarlab` | `RawMRIDataExplorer-<version>-windows-x64.zip` (PyInstaller bundle) |
 | Any | `pip install` | wheel / sdist |
@@ -16,9 +17,11 @@ is a Git repo of JSON manifests, the same way a tap is a Git repo of formulae).
 3. `.github/workflows/release.yml` then:
    - builds the sdist and wheel and checks the tag matches both version strings;
    - builds the standalone Windows app with PyInstaller, launches it as a smoke
-     test, and zips it;
+     test, zips it, and wraps it in the Inno Setup installer
+     (`packaging/windows/installer.iss`), which is then silently installed,
+     launched, and uninstalled;
    - installs the Homebrew formula on macOS from the fresh sdist and runs
-     `brew test`;
+     `brew test` (informational; it does not block the release);
    - creates a **draft** GitHub release with every artifact, `SHA256SUMS.txt`,
      and the filled-in `raw-mri-data-explorer.rb` and `raw-mri-data-explorer.json`.
 4. Review the draft release and publish it. The download URLs in the formula
@@ -55,6 +58,9 @@ Create two public repos under the `farivarlab` organization:
 # Standalone Windows bundle -> dist\Raw MRI Data Explorer\
 .\.venv\Scripts\python.exe -m pip install pyinstaller
 .\.venv\Scripts\python.exe -m PyInstaller packaging/pyinstaller/raw-mri-data-explorer.spec --noconfirm
+
+# Installer -> dist\RawMRIDataExplorer-<version>-windows-x64-setup.exe (needs Inno Setup 6)
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.2.0 packaging\windows\installer.iss
 
 # Render manifests against local artifacts
 .\.venv\Scripts\python.exe tools/render_package_manifests.py --version 0.2.0 `

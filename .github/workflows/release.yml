@@ -1,8 +1,8 @@
 name: Release
 
 # Push a tag matching the package version (e.g. v0.2.0) to publish a release.
-# The release gets the sdist/wheel, a standalone Windows zip, and the filled-in
-# Homebrew formula and Scoop manifest to copy into the tap and bucket repos.
+# The release gets the Windows installer (Inno Setup), a portable Windows zip,
+# the sdist/wheel, and the filled-in Homebrew formula and Scoop manifest.
 on:
   push:
     tags: ['v*']
@@ -76,16 +76,43 @@ jobs:
       - name: Zip bundle
         shell: pwsh
         run: |
-          $zip = "RawMRIDataExplorer-${{ needs.dist.outputs.version }}-windows-x64.zip"
+          $zip = "dist/RawMRIDataExplorer-${{ needs.dist.outputs.version }}-windows-x64.zip"
           Compress-Archive -Path "dist/Raw MRI Data Explorer" -DestinationPath $zip
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          & $iscc /Q "/DAppVersion=${{ needs.dist.outputs.version }}" packaging\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+      - name: Smoke-test install, launch, and uninstall
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $setup = "dist/RawMRIDataExplorer-${{ needs.dist.outputs.version }}-windows-x64-setup.exe"
+          $dir = Join-Path $env:RUNNER_TEMP "rmde-install"
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART',"/DIR=`"$dir`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installer exited with $($p.ExitCode)" }
+          $app = Start-Process (Join-Path $dir 'Raw MRI Data Explorer.exe') -ArgumentList '--windowed' -PassThru
+          Start-Sleep -Seconds 15
+          if ($app.HasExited) { throw "Installed app exited early with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id
+          Start-Sleep -Seconds 2
+          $u = Start-Process (Join-Path $dir 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "Uninstaller exited with $($u.ExitCode)" }
       - uses: actions/upload-artifact@v5
         with:
           name: windows
-          path: RawMRIDataExplorer-*-windows-x64.zip
+          path: |
+            dist/RawMRIDataExplorer-*-windows-x64.zip
+            dist/RawMRIDataExplorer-*-windows-x64-setup.exe
 
   homebrew-check:
-    # Install the formula from the freshly built sdist to catch breakage
-    # before the release is published.
+    # Install the formula from the freshly built sdist to catch breakage.
+    # Informational for now: it does not block the (Windows-first) release.
     needs: dist
     runs-on: macos-latest
     steps:
@@ -111,7 +138,7 @@ jobs:
           brew test local/test/raw-mri-data-explorer
 
   release:
-    needs: [dist, windows-bundle, homebrew-check]
+    needs: [dist, windows-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: write
