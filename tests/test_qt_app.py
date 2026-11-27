@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEventLoop, Qt
 from PySide6.QtGui import QAction, QImage, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QAbstractButton
@@ -68,13 +68,13 @@ class NativeExplorerTests(unittest.TestCase):
     def wait_for(self, condition, timeout=10):
         deadline = time.monotonic() + timeout
         while not condition():
-            self.app.processEvents()
+            self.app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
             # Release the GIL so the Python reader worker can finish its I/O.
             # Qt's nested QTest wait can stall it after many GUI tests.
             time.sleep(0.002)
             if time.monotonic() > deadline:
                 self.fail(f"Qt operation did not finish within {timeout} seconds")
-        self.app.processEvents()
+        self.app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
 
     def wait_idle(self):
         self.wait_for(lambda: not self.window.busy and self.window.pool.activeThreadCount() == 0)

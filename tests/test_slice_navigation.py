@@ -12,7 +12,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -80,11 +80,11 @@ class SliceNavigationTests(unittest.TestCase):
     def wait_for(self, condition, timeout=12):
         deadline = time.monotonic() + timeout
         while not condition():
-            self.app.processEvents()
+            self.app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
             time.sleep(0.003)
             if time.monotonic() > deadline:
                 self.fail(f"Slice operation did not settle within {timeout} seconds")
-        self.app.processEvents()
+        self.app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
 
     def wait_settled(self):
         def settled():
