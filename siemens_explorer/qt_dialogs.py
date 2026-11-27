@@ -115,6 +115,11 @@ class QMessageBox(_ClassicDialogMixin, _QMessageBox):
             super().__init__(*args, **kwargs)
         _install_caption(self)
 
+    def setWindowTitle(self, title):
+        # Qt's QMessageBox ignores titles on macOS because native alerts have
+        # none, but this dialog draws its own caption from windowTitle().
+        QDialog.setWindowTitle(self, title)
+
     @classmethod
     def _message(cls, icon, parent, title, text, buttons, defaultButton):
         dialog = cls(parent)

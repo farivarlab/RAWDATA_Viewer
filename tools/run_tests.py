@@ -20,13 +20,25 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 
+# Run unittest discovery with a faulthandler watchdog: shortly before the
+# module timeout, every thread's stack is written to stderr and the process
+# exits, so a hung GUI test reports where it is blocked instead of only timing out.
+WATCHDOG_BOOT = (
+    "import faulthandler, sys, unittest; "
+    "faulthandler.dump_traceback_later(float(sys.argv.pop(1)), exit=True); "
+    "unittest.main(module=None, argv=['unittest'] + sys.argv[1:])"
+)
+
+
 def run_module(path: Path, timeout: float) -> dict:
     """Capture one module's result; timeouts count as failures rather than hangs."""
+    watchdog = max(timeout * 0.9, timeout - 10)
     env = dict(os.environ)
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         result = subprocess.run(
-            [sys.executable, "-u", "-m", "unittest", "discover", "-s", "tests", "-p", path.name, "-v"],
+            [sys.executable, "-u", "-c", WATCHDOG_BOOT, f"{watchdog:g}",
+             "discover", "-s", "tests", "-p", path.name, "-v"],
             cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=timeout,
         )
